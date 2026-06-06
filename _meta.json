@@ -1,0 +1,58 @@
+{
+  "name": "skillos",
+  "version": "1.0.0",
+  "description": "Meta Skill Operating System — manages, analyzes, rates, optimizes, and generates Claude Code skills",
+  "author": "SkillOS",
+  "license": "MIT",
+  "homepage": "https://github.com/K-arch-droid/SkillOS",
+  "repository": "https://github.com/K-arch-droid/SkillOS",
+  "keywords": ["skill", "meta", "management", "analyzer", "optimizer", "generator", "router", "orchestrator"],
+  "engines": {
+    "claude-code": ">=2.0.0"
+  },
+  "dependencies": {
+    "python": ">=3.10"
+  },
+  "scripts": {
+    "scan": "python skillos.py registry",
+    "rate": "python skillos.py rate",
+    "analyze": "python skillos.py analyze",
+    "route": "python skillos.py route",
+    "conflicts": "python skillos.py conflicts",
+    "generate": "python skillos.py generate",
+    "optimize": "python skillos.py optimize"
+  },
+  "files": [
+    "SKILL.md",
+    "skillos.py",
+    "skill_parser.py",
+    "skill_analyzer.py",
+    "skill_router.py",
+    "skill_registry.py",
+    "skill_generator.py",
+    "skill_optimizer.py",
+    "conflict_detector.py",
+    "references/",
+    "scripts/",
+    "assets/",
+    "examples/",
+    "state/",
+    "hooks/",
+    "templates/"
+  ],
+  "changelog": [
+    {
+      "version": "1.0.0",
+      "date": "2026-06-06",
+      "changes": [
+        "Initial release",
+        "7-dimension skill rating system",
+        "Intelligent skill routing",
+        "Conflict detection engine",
+        "Skill generator with 5 type templates",
+        "Optimization workflow (review→plan→confirm→implement→verify)",
+        "Registry scanner with auto-indexing"
+      ]
+    }
+  ]
+}

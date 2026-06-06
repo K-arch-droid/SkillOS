@@ -1,0 +1,823 @@
+================================================================================
+                         SkillOS v1.0 — 项目说明
+                     Meta Skill Operating System
+================================================================================
+
+目录
+----
+  一、项目总览
+  二、功能清单
+  三、模块详解
+    模块 1：skill_parser.py — 文件解析器
+    模块 2：skill_analyzer.py — 7 维度分析器
+    模块 3：skill_router.py — 智能路由器
+    模块 4：conflict_detector.py — 冲突检测器
+    模块 5：skill_registry.py — 注册表管理器
+    模块 6：skill_generator.py — Skill 生成器
+    模块 7：skill_optimizer.py — Skill 优化器
+    模块 8：skillos.py — CLI 主入口
+  四、辅助文件说明
+  五、数据流与调用关系
+  六、使用方式
+
+
+================================================================================
+一、项目总览
+================================================================================
+
+SkillOS 是一个用于管理 Claude Code Skill 生命周期的工具。
+
+它不直接完成业务任务（写代码、写文章、做设计），而是管理完成
+这些任务的 Skill：发现、分析、评分、优化、生成、编排。
+
+核心思路：不造轮子。社区已有成熟 Skill（skill-router 704 安装、
+self-improving-agent 29.9K 安装），SkillOS 是它们的编排层。
+
+
+================================================================================
+二、功能清单
+================================================================================
+
+功能 1：Skill 解析
+  - 读取 SKILL.md 文件
+  - 提取 frontmatter（name/description/license 等字段）
+  - 提取 body 章节结构（## 标题分段）
+  - 检测 Skill 类型（methodology/technical/auditing/reference/automation）
+  - 检测是否有 references/ 目录及其中文件
+  - 实现文件：skill_parser.py
+
+功能 2：7 维度评分
+  - Description 质量（25 分）：第三人称、指令式、触发词、负面范围、长度
+  - Frontmatter 有效性（20 分）：字段合法性、保留字检查、层级正确
+  - 长度与渐进式披露（15 分）：正文行数、references 拆分
+  - 结构匹配度（15 分）：按类型检查必含章节
+  - 示例质量（10 分）：正反对比、具体性
+  - 简洁性（10 分）：无冗余段落
+  - 反模式规避（5 分）：无 ALL-CAPS 标题、无 Mega-skill
+  - 输出 A-F 等级 + 加权总分 + 逐维度分数 + 具体修复建议
+  - 实现文件：skill_analyzer.py
+
+功能 3：智能路由
+  - 接收用户自然语言请求
+  - 提取请求关键词（去停用词）
+  - 与所有已安装 Skill 的 description 做匹配
+  - 4 层评分：触发词匹配(40%) + 关键词重叠(30%) + 名称匹配(10%) + 领域匹配(20%)
+  - 内置 12 个领域关键词映射（code_review/testing/documentation/architecture 等）
+  - 返回 Top 5 匹配结果 + 置信度 + 匹配原因
+  - 实现文件：skill_router.py
+
+功能 4：冲突检测
+  - 扫描所有已安装 Skill
+  - 提取每个 Skill 的触发关键词（引号短语 + 名词）
+  - 计算两两之间的 Jaccard 重叠率
+  - 检测 3 种冲突类型：
+    a) trigger_overlap — 触发词重叠率 >30%
+    b) scope_duplication — 负面范围重叠
+    c) capability_duplicate — 章节结构重叠率 >50%
+  - 输出高/中/低严重度 + 具体修复建议
+  - 实现文件：conflict_detector.py
+
+功能 5：注册表管理
+  - 调用 `npx skills ls --json` 获取已安装 Skill 列表
+  - 读取每个 Skill 的 SKILL.md 提取 description
+  - 生成格式化的 Markdown 索引表
+  - 支持按名称/关键词查询
+  - 支持按 scope（global/project）筛选
+  - 持久化到 state/registry.json
+  - 实现文件：skill_registry.py
+
+功能 6：Skill 生成
+  - 5 种类型模板：methodology / technical / auditing / reference / automation
+  - 自动生成符合规范的 frontmatter
+  - 按类型填充 body 模板（Workflow/Quick Start/Rubric 等）
+  - 自动生成 20 条评估集（10 应触发 + 10 不应触发）
+  - 验证生成内容是否符合规范
+  - 实现文件：skill_generator.py
+
+功能 7：Skill 优化
+  - 先调用 analyzer 做完整评分
+  - 将审查发现转化为具体修改建议（Change 对象）
+  - 按 P0/P1/P2 优先级分组输出
+  - 包含 diff 格式的具体修改内容
+  - 等用户确认后才实施（不自动改文件）
+  - 实现文件：skill_optimizer.py
+
+功能 8：CLI 命令行
+  - 8 个子命令：list / registry / rate / analyze / route / conflicts / generate / optimize
+  - argparse 参数解析
+  - Windows 编码修复（UTF-8 输出）
+  - 实现文件：skillos.py
+
+
+================================================================================
+三、模块详解
+================================================================================
+
+
+--------------------------------------------------------------------------------
+模块 1：skill_parser.py — 文件解析器
+--------------------------------------------------------------------------------
+
+角色：所有其他模块的基础依赖。其他模块都调用它来读取 SKILL.md。
+
+数据结构：
+
+  SkillFrontmatter (dataclass)
+    .name              str    Skill 名称
+    .description       str    一句话描述
+    .license           str    许可证
+    .argument_hint     str    参数提示
+    .allowed_tools     str    允许的工具
+    .disable_model_invocation  bool  是否禁止自动触发
+    .user_invocable    bool   是否可用户调用
+    .model             str    指定模型
+    .effort            str    思考强度
+    .paths             str    限定路径
+    .metadata          dict   元数据
+    .raw               str    原始 YAML 文本
+
+  SkillSection (dataclass)
+    .title       str    章节标题（不含 # 号）
+    .level       int    标题级别（## = 2, ### = 3）
+    .line_start  int    起始行号
+    .line_end    int    结束行号
+    .content     str    章节正文
+
+  SkillParseResult (dataclass)
+    .path                str              SKILL.md 文件路径
+    .frontmatter         SkillFrontmatter frontmatter 数据
+    .body                str              body 正文
+    .body_lines          int              body 行数
+    .sections            list[SkillSection] 所有章节
+    .has_references_dir  bool             是否有 references/ 目录
+    .references_files    list[str]        references/ 中的文件名
+    .skill_type          str              检测到的类型
+
+核心函数：
+
+  parse_frontmatter(raw: str) -> SkillFrontmatter
+    输入：--- 之间的原始 YAML 文本
+    处理：逐行按 : 分割 key-value，匹配到对应字段则赋值
+    输出：填充好的 SkillFrontmatter 对象
+
+  parse_sections(body: str) -> list[SkillSection]
+    输入：body 正文文本
+    处理：用正则 ^(#{1,6})\s+(.+) 匹配所有标题行，
+          每遇到新标题就把前一段存为 SkillSection
+    输出：所有章节的列表
+
+  detect_skill_type(sections, body) -> str
+    输入：章节列表 + body 文本
+    处理：按优先级检查章节标题关键词
+          - 有 "phase"/"step"/"workflow" → methodology
+          - 有 "rubric"/"scoring" → auditing
+          - 有 "quick start" 或 "api"+"how it works" → technical
+          - 有 "schema"/"lookup" → reference
+          - 有 "command"+"failure" → automation
+          - 都不匹配 → unknown
+    输出：类型字符串
+
+  parse_skill(skill_path) -> SkillParseResult
+    输入：文件路径或目录路径
+    处理：
+      1. 如果是目录，追加 /SKILL.md
+      2. 读取文件内容
+      3. 如果首行是 ---，提取 frontmatter（到下一个 --- 为止）
+      4. 剩余部分为 body
+      5. 调用 parse_sections 提取章节
+      6. 调用 detect_skill_type 检测类型
+      7. 检查父目录下是否有 references/
+    输出：完整的 SkillParseResult
+
+  find_skill_md(directory) -> list[str]
+    输入：目录路径
+    处理：递归遍历，跳过 .开头目录和 node_modules，收集 SKILL.md 路径
+    输出：所有 SKILL.md 的绝对路径列表
+
+
+--------------------------------------------------------------------------------
+模块 2：skill_analyzer.py — 7 维度分析器
+--------------------------------------------------------------------------------
+
+角色：对解析后的 Skill 做完整质量审查，输出评分报告。
+
+数据结构：
+
+  Finding (dataclass)
+    .priority   str   P0（必须修）/ P1（应该修）/ P2（可选修）
+    .category   str   所属维度名称
+    .title      str   问题标题
+    .reason     str   为什么这是问题
+    .fix        str   如何修复
+
+  CategoryScore (dataclass)
+    .name      str    维度名称
+    .weight    int    权重（满分 100 的分配）
+    .score     int    该维度得分 0-100
+    .weighted  float  加权分 = score * weight / 100
+
+  AnalysisResult (dataclass)
+    .skill_name       str               Skill 名称
+    .skill_type       str               检测到的类型
+    .overall_score    int               总分 0-100
+    .grade            str               A/B/C/D/F
+    .categories       list[CategoryScore] 7 个维度的评分
+    .strengths        list[str]         做得好的点
+    .findings         list[Finding]     所有问题
+    .projected_grade  str               修复 P0+P1 后预估等级
+
+核心函数：
+
+  analyze(parsed: SkillParseResult) -> AnalysisResult
+    调用 7 个内部函数，每个函数检查一个维度：
+
+    _analyze_description(result, parsed)
+      检查项：
+      - 是否存在 description（不存在 → P0，score=0）
+      - 是否多行（|或> → P0，score=0）
+      - 是否第一人称（I help/I'll → P1，cap 40）
+      - 是否指令式（Use whenever → 没有则 P1，cap 70）
+      - 引号触发短语数量（<3 个 → P1，cap 60）
+      - 前 50 字符是否有独特名词（A skill for → P1，cap 70）
+      - 长度（>1024 → P0 cap 50，>500 → P1 cap 85，>230 → P2）
+
+    _analyze_frontmatter(result, parsed)
+      检查项：
+      - name 是否存在（不存在 → P0，-30）
+      - name 是否全小写 kebab-case（大写 → P1，-15）
+      - name 是否有连续连字符（→ P1，-15）
+      - name 是否含保留字 anthropic/claude（→ P1，-15）
+      - 是否有非法顶级字段 version/author/tags/category（每个 P1，-15）
+
+    _analyze_length(result, parsed)
+      检查项：
+      - body_lines >500 且无 references/（→ P0，score=40）
+      - body_lines >500 有 references/（按超出量扣分）
+      - body_lines >300（每超 50 行扣 20）
+
+    _analyze_structure(result, parsed)
+      按 skill_type 查找必要章节：
+      - methodology：需要 overview, workflow, examples, gotchas
+      - technical：需要 overview, quick start, examples, gotchas
+      - auditing：需要 overview, rubric, output format, examples, gotchas
+      - reference：需要 overview
+      - automation：需要 overview, command, failure, gotchas
+      每缺一个章节扣 20 分
+
+    _analyze_examples(result, parsed)
+      检查项：
+      - body 中是否有 "example"/"示例"（没有 → score=40）
+      - 是否有 ✅/desired 正面示例（没有 → -25）
+      - 是否有 ❌/anti-pattern 反面示例（没有 → -25）
+      - 是否用了 <Good>/<Bad> XML 标签（→ -10）
+
+    _analyze_conciseness(result, parsed)
+      检查项：
+      - 是否有冗余引入语（"it is important to note that" 等，每个 -10）
+
+    _analyze_antipatterns(result, parsed)
+      检查项：
+      - 是否有全大写章节标题（## ALL CAPS → -20）
+      - 是否有 Windows 反斜杠路径（→ -20）
+      - 章节是否过多（>15 个可能是 Mega-skill → -20）
+
+  format_report(result) -> str
+    将 AnalysisResult 格式化为 Markdown 文本
+
+
+--------------------------------------------------------------------------------
+模块 3：skill_router.py — 智能路由器
+--------------------------------------------------------------------------------
+
+角色：将用户自然语言请求匹配到最合适的 Skill。
+
+数据结构：
+
+  RouteMatch (dataclass)
+    .skill_name        str      匹配的 Skill 名称
+    .confidence        float    置信度 0.0-1.0
+    .reason            str      匹配原因说明
+    .matched_triggers  list     匹配到的触发短语
+
+  RouteResult (dataclass)
+    .query       str            用户原始请求
+    .matches     list[RouteMatch]  所有匹配结果（按置信度降序）
+    .best_match  RouteMatch     最佳匹配
+
+核心机制：
+
+  DOMAIN_KEYWORDS — 内置领域映射表
+    12 个领域，每个包含：
+    .keywords — 该领域的中英文关键词列表
+    .skill_patterns — 该领域 Skill 名称中常见的模式词
+    领域：code_review, testing, documentation, architecture,
+          deployment, security, performance, design, product,
+          skill_management, browser, git
+
+  route_request(query, available_skills) -> RouteResult
+    对每个 Skill 计算 4 层分数：
+
+    1. 触发词匹配（权重 40%）
+       - 提取 Skill description 中的引号短语
+       - 如果短语完整出现在用户请求中 → +1
+       - 如果短语的词有一半出现在请求中 → +0.5
+
+    2. 关键词重叠（权重 30%）
+       - 将 description 分词去停用词
+       - 与用户请求分词结果取交集
+       - 重叠率 = 交集大小 / 用户请求词数
+
+    3. 名称匹配（权重 10%）
+       - Skill 名称分词与用户请求词的重叠率
+
+    4. 领域匹配（权重 20%）
+       - 用户请求词与 DOMAIN_KEYWORDS 中的关键词匹配
+       - 如果匹配到某领域，检查 Skill 名称/描述是否含该领域的 pattern
+       - 匹配则 +0.8
+
+    总分 = 4 项加权之和，上限 1.0
+
+  _tokenize(text) -> set
+    分词 + 去停用词（英文 20+ 个停用词）
+
+
+--------------------------------------------------------------------------------
+模块 4：conflict_detector.py — 冲突检测器
+--------------------------------------------------------------------------------
+
+角色：检测多个 Skill 之间的触发词冲突和能力重叠。
+这是社区目前没有成熟方案的领域，SkillOS 自主设计。
+
+数据结构：
+
+  Conflict (dataclass)
+    .conflict_type  str   trigger_overlap / scope_duplication / capability_duplicate
+    .severity       str   high / medium / low
+    .skill_a        str   冲突方 A
+    .skill_b        str   冲突方 B
+    .detail         str   冲突详情
+    .suggestion     str   修复建议
+
+  ConflictReport (dataclass)
+    .total_skills  int              扫描的 Skill 总数
+    .conflicts     list[Conflict]   所有冲突
+    .summary       dict             类型 -> 数量
+
+核心函数：
+
+  extract_triggers(parsed) -> set
+    从 description 中提取触发关键词：
+    - 提取所有引号包裹的短语
+    - 提取所有 ≥3 字符的英文单词
+    - 去掉 30+ 个停用词
+    返回关键词集合
+
+  extract_scope(parsed) -> set
+    从 description 的 "Do NOT use for" 部分提取负面范围
+
+  compute_overlap(set_a, set_b) -> float
+    计算 Jaccard 系数 = |交集| / |并集|
+
+  detect_conflicts(skills) -> ConflictReport
+    双重循环遍历所有 Skill 对：
+
+    检测 1：trigger_overlap
+      - 计算触发词 Jaccard 重叠率
+      - >0.5 → high，>0.3 → medium
+      - 列出共同词
+
+    检测 2：scope_duplication
+      - 如果两个 Skill 都有 "Do NOT" 范围
+      - 范围词有交集 → medium
+
+    检测 3：capability_duplicate
+      - 提取两个 Skill 的 ## 级章节标题集合
+      - Jaccard >0.5 且章节 >3 个 → low
+      - 可能是重复能力
+
+
+--------------------------------------------------------------------------------
+模块 5：skill_registry.py — 注册表管理器
+--------------------------------------------------------------------------------
+
+角色：扫描已安装 Skill，维护索引。
+
+数据结构：
+
+  SkillEntry (dataclass)
+    .name         str               Skill 名称
+    .path         str               安装路径
+    .scope        str               global / project
+    .agents       list[str]         支持的 Agent 列表
+    .description  str               从 SKILL.md 提取的描述
+    .parsed       SkillParseResult  解析结果（可选）
+
+  Registry (dataclass)
+    .entries    list[SkillEntry]  所有条目
+    .scan_time  str               扫描时间
+
+核心函数：
+
+  scan_installed_skills(scope) -> Registry
+    步骤：
+    1. 运行 `npx skills ls -g --json`（global）或 `npx skills ls --json`（project）
+    2. 解析 JSON 输出，每个条目包含 name/path/scope/agents
+    3. 对每个条目，尝试读取 path/SKILL.md 提取 description
+    4. 如果 npx 失败，回退到直接扫描 ~/.claude/skills/ 和 ~/.agents/skills/
+    返回 Registry 对象
+
+  generate_registry_markdown(registry) -> str
+    生成 Markdown 表格：序号/名称/作用域/Agent/描述
+
+  save_registry(registry, output_path)
+    写入文件
+
+
+--------------------------------------------------------------------------------
+模块 6：skill_generator.py — Skill 生成器
+--------------------------------------------------------------------------------
+
+角色：根据参数自动生成符合规范的 SKILL.md 文件。
+
+模板系统：
+
+  TEMPLATES 字典 — 5 种类型的 body 模板
+
+  methodology 模板结构：
+    # {name}
+    ## Overview
+    ## Core Principles
+    ## Workflow (Phase 1 / Phase 2 / Phase 3: Verify)
+    ## Examples (✅ desired / ❌ anti-pattern)
+    ## Gotchas
+
+  technical 模板结构：
+    # {name}
+    ## Overview
+    ## Quick Start (代码块)
+    ## How It Works
+    ## Quick Reference (表格)
+    ## Examples
+    ## Gotchas
+
+  auditing 模板结构：
+    # {name}
+    ## Overview
+    ## Scoring Rubric (表格)
+    ## Output Format
+    ## Examples (高/低质量)
+    ## Gotchas
+
+  reference 模板结构：
+    # {name}
+    ## Overview
+    ## Quick Reference
+    ## {domain_1}
+
+  automation 模板结构：
+    # {name}
+    ## Overview
+    ## Command Surface (表格)
+    ## Sample Invocation (代码块)
+    ## Failure Modes (表格)
+    ## Gotchas
+
+核心函数：
+
+  generate_frontmatter(name, description, ...) -> str
+    生成 YAML frontmatter 文本
+
+  generate_skill(name, description, skill_type, variables, output_dir) -> str
+    步骤：
+    1. 设置默认变量（60+ 个模板变量有默认值）
+    2. 合并用户传入的 variables
+    3. 生成 frontmatter
+    4. 选择对应类型的模板
+    5. 用 str.replace 将 {key} 替换为实际值
+    6. 如果指定 output_dir，写入 SKILL.md + references/EVAL.md
+    返回完整 SKILL.md 内容
+
+  _generate_eval_set(name, description) -> str
+    生成 20 条评估集模板
+
+  validate_skill_content(content) -> list[str]
+    验证生成内容：
+    - 是否有 frontmatter
+    - description 是否单行
+    - 是否有 name
+    - 行数是否超限
+
+
+--------------------------------------------------------------------------------
+模块 7：skill_optimizer.py — Skill 优化器
+--------------------------------------------------------------------------------
+
+角色：基于分析结果生成具体的优化计划。
+
+数据结构：
+
+  OptimizationPlan (dataclass)
+    .target           str           目标 Skill 名称
+    .scope            str           审查范围
+    .findings         list[Finding] 所有发现
+    .changes          list[Change]  具体修改建议
+    .estimated_grade  str           修复后预估等级
+
+  Change (dataclass)
+    .file_path     str    文件路径
+    .change_type   str    modify / add / remove
+    .section       str    修改位置
+    .description   str    修改说明
+    .priority      str    P0 / P1 / P2
+    .old_content   str    原内容
+    .new_content   str    新内容
+
+核心函数：
+
+  generate_optimization_plan(parsed) -> OptimizationPlan
+    步骤：
+    1. 调用 analyze(parsed) 获取完整分析结果
+    2. 遍历 P0 和 P1 级别的 findings
+    3. 对每个 finding 调用 _finding_to_change 转化为具体 Change
+    4. 返回包含所有 Change 的计划
+
+  _finding_to_change(parsed, finding) -> Change
+    根据 finding 的类型生成具体修改：
+    - "第一人称" → 用正则替换为第三人称
+    - "多行格式" → 合并为单行
+    - "超过 500 行" → 建议拆分到 references/
+    - "缺少必要章节" → 建议添加空章节
+
+  format_optimization_plan(plan) -> str
+    格式化为 Markdown：审查对象 → 高/中/低优先级 → 优化计划 → 预估等级
+
+  apply_description_fix(parsed, new_description) -> str
+    直接修改文件中的 description 行
+
+
+--------------------------------------------------------------------------------
+模块 8：skillos.py — CLI 主入口
+--------------------------------------------------------------------------------
+
+角色：将所有模块串联为命令行工具。
+
+8 个子命令对应的处理函数：
+
+  cmd_list(args)
+    调用：skill_registry.scan_installed_skills()
+    输出：格式化表格（序号/名称/作用域/描述）
+
+  cmd_registry(args)
+    调用：skill_registry.scan_installed_skills() → save_registry()
+    输出：写入 references/SKILL-REGISTRY.md
+
+  cmd_rate(args)
+    调用：skill_parser.parse_skill() → skill_analyzer.analyze() → format_report()
+    输出：7 维度评分报告
+
+  cmd_analyze(args)
+    调用：同 rate，但支持 --json 输出结构化数据
+
+  cmd_route(args)
+    调用：skill_registry.scan_installed_skills() → skill_router.route_request()
+    输出：Top 5 匹配结果
+
+  cmd_conflicts(args)
+    调用：skill_registry.scan_installed_skills() → conflict_detector.detect_conflicts()
+    输出：冲突检测报告
+
+  cmd_generate(args)
+    调用：skill_generator.generate_skill() → validate_skill_content()
+    输出：生成 SKILL.md + references/EVAL.md
+
+  cmd_optimize(args)
+    调用：skill_parser.parse_skill() → skill_optimizer.generate_optimization_plan()
+    输出：优化计划
+
+
+================================================================================
+四、辅助文件说明
+================================================================================
+
+_meta.json
+  作用：Skill 元数据，供 npx skills 系统识别
+  内容：name, version, description, keywords, dependencies,
+        scripts（7 个快捷命令）, files（文件清单）, changelog
+
+LICENSE
+  作用：MIT 开源许可证
+
+SKILL.md
+  作用：Claude Code 读取的调度指令
+  内容：8 个 Action 流程定义（find/list/rate/optimize/generate/route/compose/registry）
+  行数：250 行（控制在 300 行上限内）
+
+README.md
+  作用：人类阅读的项目文档
+  内容：快速开始、CLI 用法、项目结构、设计决策、使用场景
+
+references/SKILL-REGISTRY.md
+  作用：已安装 Skill 的索引表
+  生成方式：由 scan-skills.sh 或 `python skillos.py registry` 自动生成
+
+references/ROUTING-RULES.md
+  作用：路由决策规则链
+  内容：4 级优先级（显式调用 > Skill 管理请求 > 任务型请求 > 兜底）
+
+references/REVIEW-CHECKLIST.md
+  作用：7 维度评分的详细检查清单
+  内容：每个维度的具体检查项、扣分规则、输出模板
+
+references/SKILL-TYPES.md
+  作用：5 种 Skill 类型的 body 模板
+  内容：每种类型的必含章节和格式要求
+
+references/GOTCHAS.md
+  作用：常见陷阱与修复方法
+  内容：15+ 个具体陷阱，每个包含症状/原因/修复
+
+references/ADVANCED-PATTERNS.md
+  作用：高级用法和扩展
+  内容：批量评分、CI 集成、依赖图、自定义维度等
+
+templates/SKILL-TEMPLATE.md
+  作用：新 Skill 的空白模板
+  内容：frontmatter + body 骨架，{placeholder} 占位符
+
+templates/EVAL-TEMPLATE.md
+  作用：评估集模板
+  内容：20 条测试查询的格式模板
+
+scripts/install.sh
+  作用：一键安装脚本
+  功能：检查 Python/Node.js、安装 7 个核心依赖 Skill、初始化 state/
+
+scripts/skillos.sh
+  作用：CLI 包装器（bash 调用 python skillos.py）
+
+scripts/scan-skills.sh
+  作用：bash 版扫描脚本（不依赖 Python）
+
+scripts/rate-skill.sh
+  作用：bash 版基础评分检查
+
+assets/report-template.md
+  作用：审查报告的 Markdown 模板
+  内容：{placeholder} 占位符，供生成报告时填充
+
+examples/workflow-rate.md
+  作用：评分审查的完整示例
+  内容：命令 → 输出 → 下一步
+
+examples/workflow-generate.md
+  作用：生成 Skill 的完整示例
+  内容：命令 → 输出 → 生成的 SKILL.md 示例 → 下一步
+
+examples/workflow-optimize.md
+  作用：优化 Skill 的完整示例
+  内容：命令 → 输出 → 工作流状态 → 下一步
+
+examples/workflow-conflicts.md
+  作用：冲突检测的完整示例
+  内容：命令 → 输出 → 解决方法
+
+examples/workflow-route.md
+  作用：路由请求的完整示例
+  内容：命令 → 输出 → 路由逻辑说明
+
+state/registry.json
+  作用：持久化的 Skill 注册表（JSON 格式）
+  更新方式：由 `python skillos.py registry` 写入
+
+state/evolution.json
+  作用：Skill 演化历史记录
+  内容：每次评分/修改的时间戳和结果
+
+state/learnings.json
+  作用：操作经验记录
+  内容：从错误和纠正中学到的经验
+
+hooks/HOOK.md
+  作用：事件钩子文档
+  内容：9 个可用事件、配置方式、自定义脚本示例
+
+
+================================================================================
+五、数据流与调用关系
+================================================================================
+
+用户输入
+  │
+  ▼
+skillos.py（CLI 入口）
+  │
+  ├─ list ──────→ skill_registry.scan_installed_skills()
+  │                 │
+  │                 ├─ npx skills ls --json
+  │                 └─ skill_parser.parse_skill() × N
+  │
+  ├─ registry ──→ skill_registry.scan_installed_skills()
+  │                 └─ save_registry() → references/SKILL-REGISTRY.md
+  │
+  ├─ rate ──────→ skill_parser.parse_skill()
+  │                 └─ skill_analyzer.analyze()
+  │                      ├─ _analyze_description()
+  │                      ├─ _analyze_frontmatter()
+  │                      ├─ _analyze_length()
+  │                      ├─ _analyze_structure()
+  │                      ├─ _analyze_examples()
+  │                      ├─ _analyze_conciseness()
+  │                      └─ _analyze_antipatterns()
+  │                      └─ format_report()
+  │
+  ├─ analyze ───→ 同 rate，支持 --json 输出
+  │
+  ├─ route ─────→ skill_registry.scan_installed_skills()
+  │                 └─ skill_router.route_request()
+  │                      ├─ _tokenize(query)
+  │                      ├─ 遍历所有 Skill
+  │                      │   ├─ 触发词匹配 (40%)
+  │                      │   ├─ 关键词重叠 (30%)
+  │                      │   ├─ 名称匹配 (10%)
+  │                      │   └─ 领域匹配 (20%)
+  │                      └─ 排序 → Top 5
+  │
+  ├─ conflicts ─→ skill_registry.scan_installed_skills()
+  │                 └─ conflict_detector.detect_conflicts()
+  │                      ├─ extract_triggers() × N
+  │                      ├─ 双重循环遍历
+  │                      │   ├─ trigger_overlap (Jaccard >0.3)
+  │                      │   ├─ scope_duplication
+  │                      │   └─ capability_duplicate (章节 >0.5)
+  │                      └─ format_conflict_report()
+  │
+  ├─ generate ──→ skill_generator.generate_skill()
+  │                 ├─ generate_frontmatter()
+  │                 ├─ 选择模板 (5 种)
+  │                 ├─ 填充变量
+  │                 ├─ 写入 SKILL.md
+  │                 ├─ _generate_eval_set()
+  │                 └─ 写入 references/EVAL.md
+  │
+  └─ optimize ──→ skill_parser.parse_skill()
+                    └─ skill_optimizer.generate_optimization_plan()
+                         ├─ skill_analyzer.analyze()
+                         ├─ _finding_to_change() × N
+                         └─ format_optimization_plan()
+
+模块依赖关系：
+
+  skillos.py
+    ├── skill_parser.py        ← 所有模块的基础
+    ├── skill_analyzer.py      ← 依赖 skill_parser
+    ├── skill_router.py        ← 依赖 skill_parser
+    ├── conflict_detector.py   ← 依赖 skill_parser
+    ├── skill_registry.py      ← 依赖 skill_parser
+    ├── skill_generator.py     ← 独立（不依赖其他模块）
+    └── skill_optimizer.py     ← 依赖 skill_parser + skill_analyzer
+
+
+================================================================================
+六、使用方式
+================================================================================
+
+安装：
+  bash scripts/install.sh
+
+或手动：
+  python skillos.py registry --global
+
+CLI 命令：
+
+  列出已安装 Skill
+    python skillos.py list --global
+    python skillos.py list --project
+
+  生成 Skill 索引
+    python skillos.py registry --global
+    python skillos.py registry -o my-index.md
+
+  评分审查
+    python skillos.py rate ~/.claude/skills/find-skills
+    python skillos.py rate ./my-skill -o report.md
+
+  深度分析（JSON 输出）
+    python skillos.py analyze . --json
+
+  路由请求
+    python skillos.py route "帮我写测试"
+    python skillos.py route "审查这个 PR"
+
+  冲突检测
+    python skillos.py conflicts --global
+
+  生成新 Skill
+    python skillos.py generate --name my-skill --type methodology --desc "..."
+    python skillos.py generate --name my-skill --type technical --show
+
+  优化 Skill
+    python skillos.py optimize ~/.claude/skills/my-skill
+
+================================================================================
+                          SkillOS v1.0 — 完
+================================================================================
