@@ -13,6 +13,7 @@
 import io
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -908,6 +909,19 @@ class TestRegistry(unittest.TestCase):
             self.assertIn("x", content)
         finally:
             os.unlink(tmppath)
+
+    def test_save_registry_creates_parent_dirs(self):
+        from skill_registry import Registry, SkillEntry, save_registry
+        entries = [SkillEntry(name="x", path="/x", scope="global", agents=[], description="x")]
+        reg = Registry(entries=entries, scan_time="2026-01-01")
+        tmpdir = tempfile.mkdtemp()
+        target = Path(tmpdir) / "nested" / "registry.md"
+        try:
+            save_registry(reg, str(target))
+            self.assertTrue(target.is_file())
+            self.assertIn("x", target.read_text(encoding="utf-8"))
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     def test_scan_installed_skills(self):
         """scan_installed_skills 应该返回 Registry 对象（即使为空）。"""

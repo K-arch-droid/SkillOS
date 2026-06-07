@@ -254,4 +254,6 @@ def generate_registry_markdown(registry: Registry) -> str:
 def save_registry(registry: Registry, output_path: str):
     """保存注册表到文件。"""
     content = generate_registry_markdown(registry)
-    Path(output_path).write_text(content, encoding="utf-8")
+    target = Path(output_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
