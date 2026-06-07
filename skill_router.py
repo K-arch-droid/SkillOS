@@ -223,3 +223,190 @@ def format_route_result(result: RouteResult) -> str:
         ])
 
     return "\n".join(lines)
+
+
+# ── Workflow Routing ──────────────────────────────────────────
+
+@dataclass
+class WorkflowStep:
+    """工作流中的一个步骤。"""
+    skill_name: str
+    role: str  # producer / consumer / transformer / independent / single
+    reason: str
+
+
+@dataclass
+class WorkflowRecommendation:
+    """工作流推荐结果。"""
+    query: str
+    steps: list  # list[WorkflowStep]
+    confidence: float
+    reasoning: str
+
+
+def route_workflow(query: str, available_skills: list, top_n: int = 5) -> WorkflowRecommendation:
+    """根据用户请求推荐 Serial Workflow（Skill 执行链）。
+
+    流程：
+    1. 用 route_request() 获取 Top N 匹配 Skill
+    2. 用 detect_relationships() 获取 Skill 间关系
+    3. 基于 collaboration 关系构建 Serial 执行链
+
+    Args:
+        query: 用户的自然语言请求
+        available_skills: list of SkillParseResult
+        top_n: 最多推荐的 Skill 数
+
+    Returns:
+        WorkflowRecommendation
+    """
+    # 延迟导入避免循环依赖
+    from conflict_detector import detect_relationships
+
+    # Step 1: 获取 Top N 匹配
+    route_result = route_request(query, available_skills)
+    if not route_result.matches:
+        return WorkflowRecommendation(
+            query=query,
+            steps=[],
+            confidence=0.0,
+            reasoning="未找到匹配的 Skill",
+        )
+
+    top_skills_names = [m.skill_name for m in route_result.matches[:top_n]]
+    top_skills_conf = {m.skill_name: m.confidence for m in route_result.matches[:top_n]}
+
+    # 获取对应的 parsed skills
+    skill_map = {}
+    for s in available_skills:
+        name = s.frontmatter.name or ""
+        if name in top_skills_names:
+            skill_map[name] = s
+
+    matched_skills = [skill_map[n] for n in top_skills_names if n in skill_map]
+
+    if len(matched_skills) < 2:
+        single = matched_skills[0] if matched_skills else None
+        name = single.frontmatter.name if single else top_skills_names[0]
+        return WorkflowRecommendation(
+            query=query,
+            steps=[WorkflowStep(skill_name=name, role="single", reason="单一 Skill 即可完成")],
+            confidence=top_skills_conf.get(name, 0.5),
+            reasoning="任务复杂度较低，单个 Skill 即可处理",
+        )
+
+    # Step 2: 检测关系
+    rel_report = detect_relationships(matched_skills)
+
+    # Step 3: 构建 Serial 执行链
+    collab_edges = []
+    for r in rel_report.relationships:
+        if r.relation_type == "collaboration" and r.skill_a in top_skills_names and r.skill_b in top_skills_names:
+            collab_edges.append((r.skill_a, r.skill_b, r.confidence, r.reason))
+
+    if collab_edges:
+        ordered = _topo_sort_workflow(collab_edges, top_skills_names)
+        steps = []
+        for i, name in enumerate(ordered):
+            if i == 0:
+                role = "producer"
+            elif i == len(ordered) - 1:
+                role = "consumer"
+            else:
+                role = "transformer"
+            reason = ""
+            for a, b, conf, r in collab_edges:
+                if a == name or b == name:
+                    reason = r
+                    break
+            steps.append(WorkflowStep(skill_name=name, role=role, reason=reason or "参与工作流"))
+
+        avg_conf = sum(c for _, _, c, _ in collab_edges) / len(collab_edges)
+        return WorkflowRecommendation(
+            query=query,
+            steps=steps,
+            confidence=round(avg_conf, 2),
+            reasoning=f"基于 {len(collab_edges)} 条协作关系构建 Serial 工作流",
+        )
+    else:
+        steps = []
+        for name in top_skills_names:
+            conf = top_skills_conf.get(name, 0.5)
+            steps.append(WorkflowStep(
+                skill_name=name,
+                role="independent",
+                reason=f"路由置信度 {conf:.0%}",
+            ))
+        best_conf = max(top_skills_conf.values()) if top_skills_conf else 0.5
+        return WorkflowRecommendation(
+            query=query,
+            steps=steps,
+            confidence=round(best_conf, 2),
+            reasoning="未发现协作关系，各 Skill 可独立执行或按需组合",
+        )
+
+
+def _topo_sort_workflow(edges: list, all_names: list) -> list:
+    """基于 collaboration 边做简单拓扑排序，返回执行顺序。"""
+    successors = {n: set() for n in all_names}
+    predecessors = {n: set() for n in all_names}
+    for a, b, _, _ in edges:
+        successors[a].add(b)
+        predecessors[b].add(a)
+
+    queue = [n for n in all_names if not predecessors[n]]
+    result = []
+    visited = set()
+
+    while queue:
+        queue.sort(key=lambda n: all_names.index(n))
+        node = queue.pop(0)
+        if node in visited:
+            continue
+        visited.add(node)
+        result.append(node)
+        for succ in successors[node]:
+            predecessors[succ].discard(node)
+            if not predecessors[succ]:
+                queue.append(succ)
+
+    for n in all_names:
+        if n not in visited:
+            result.append(n)
+
+    return result
+
+
+def format_workflow_recommendation(rec: WorkflowRecommendation) -> str:
+    """格式化工作流推荐为 Markdown。"""
+    lines = [
+        "# 工作流推荐",
+        "",
+        f"**用户请求：** {rec.query}",
+        f"**整体置信度：** {rec.confidence:.0%}",
+        f"**推理依据：** {rec.reasoning}",
+        "",
+    ]
+
+    if not rec.steps:
+        lines.append("未找到合适的 Skill 组合。")
+        return "\n".join(lines)
+
+    lines.append("## 执行链")
+    lines.append("")
+
+    for i, step in enumerate(rec.steps):
+        role_label = {
+            "producer": "产出方",
+            "consumer": "消费方",
+            "transformer": "中间处理",
+            "independent": "独立执行",
+            "single": "单独执行",
+        }.get(step.role, step.role)
+        lines.append(f"**{i+1}. {step.skill_name}** ({role_label})")
+        lines.append(f"   {step.reason}")
+        if i < len(rec.steps) - 1:
+            lines.append("")
+            lines.append("   ↓")
+
+    return "\n".join(lines)

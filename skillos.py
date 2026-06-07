@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""SkillOS v1.0 — Meta Skill Operating System
+"""SkillOS v1.1 — Meta Skill Operating System
 
 管理、分析、评分、优化、生成和编排 Claude Code Skill 的超级 Meta Skill。
 
@@ -12,10 +12,12 @@ Actions:
     rate        评分审查一个 Skill
     analyze     深度分析一个 Skill
     route       路由用户请求到合适 Skill
-    conflicts   检测 Skill 冲突
-    generate    生成新 Skill
-    optimize    优化一个 Skill
-    help        显示帮助信息
+    conflicts       检测 Skill 冲突
+    relationships   检测 Skill 关系图谱
+    workflow        推荐工作流（Skill 执行链）
+    generate        生成新 Skill
+    optimize        优化一个 Skill
+    help            显示帮助信息
 
 示例：
     python skillos.py list --global
@@ -23,6 +25,9 @@ Actions:
     python skillos.py analyze ./my-skill
     python skillos.py route "帮我写测试"
     python skillos.py conflicts --global
+    python skillos.py relationships --global
+    python skillos.py relationships --format mermaid
+    python skillos.py workflow "帮我开发网站"
     python skillos.py generate --name my-skill --type methodology --desc "A skill for X"
     python skillos.py optimize ~/.claude/skills/my-skill
 """
@@ -44,8 +49,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from skill_parser import parse_skill, find_skill_md
 from skill_analyzer import analyze, format_report
-from skill_router import route_request, format_route_result
-from conflict_detector import detect_conflicts, format_conflict_report
+from skill_router import route_request, format_route_result, route_workflow, format_workflow_recommendation
+from conflict_detector import (
+    detect_conflicts, format_conflict_report,
+    detect_relationships, format_relationship_report,
+    relationships_to_mermaid, relationships_to_json,
+)
 from skill_registry import scan_installed_skills, generate_registry_markdown, save_registry
 from skill_generator import generate_skill, validate_skill_content
 from skill_optimizer import generate_optimization_plan, format_optimization_plan
@@ -177,6 +186,54 @@ def cmd_conflicts(args):
     print(format_conflict_report(report))
 
 
+def cmd_workflow(args):
+    """推荐工作流（Skill 执行链）。"""
+    query = " ".join(args.query) if args.query else ""
+    if not query:
+        print("❌ 请提供用户请求")
+        print('用法: python skillos.py workflow "帮我开发网站"')
+        return
+
+    scope = "global" if args.global_ else "both"
+    if scope == "both":
+        registry = scan_installed_skills("global")
+        project_registry = scan_installed_skills("project")
+        all_skills = registry.entries + project_registry.entries
+    else:
+        registry = scan_installed_skills(scope)
+        all_skills = registry.entries
+
+    parsed_skills = [e.parsed for e in all_skills if e.parsed]
+
+    if not parsed_skills:
+        print("未找到已安装的 Skill。请先运行: python skillos.py registry")
+        return
+
+    top_n = args.top_n or 5
+    rec = route_workflow(query, parsed_skills, top_n=top_n)
+    print(format_workflow_recommendation(rec))
+
+
+def cmd_relationships(args):
+    """检测 Skill 关系图谱。"""
+    scope = "global" if args.global_ else "project"
+    registry = scan_installed_skills(scope)
+    parsed_skills = [e.parsed for e in registry.entries if e.parsed]
+
+    if len(parsed_skills) < 2:
+        print("需要至少 2 个 Skill 才能检测关系")
+        return
+
+    report = detect_relationships(parsed_skills)
+
+    if args.json_output:
+        print(relationships_to_json(report))
+    elif args.format == "mermaid":
+        print(relationships_to_mermaid(report))
+    else:
+        print(format_relationship_report(report))
+
+
 def cmd_generate(args):
     """生成新 Skill。"""
     name = args.name
@@ -236,7 +293,7 @@ def cmd_help(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="SkillOS v1.0 — Meta Skill Operating System",
+        description="SkillOS v1.1 — Meta Skill Operating System",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="action", help="操作类型")
@@ -277,6 +334,21 @@ def main():
     p_conf.add_argument("-g", "--global", dest="global_", action="store_true", default=True)
     p_conf.add_argument("-p", "--project", dest="global_", action="store_false")
     p_conf.set_defaults(func=cmd_conflicts)
+
+    # relationships
+    p_rel = subparsers.add_parser("relationships", help="检测 Skill 关系图谱")
+    p_rel.add_argument("-g", "--global", dest="global_", action="store_true", default=True)
+    p_rel.add_argument("-p", "--project", dest="global_", action="store_false")
+    p_rel.add_argument("--json", dest="json_output", action="store_true", help="JSON 输出")
+    p_rel.add_argument("--format", choices=["markdown", "mermaid"], default="markdown", help="输出格式")
+    p_rel.set_defaults(func=cmd_relationships)
+
+    # workflow
+    p_wf = subparsers.add_parser("workflow", help="推荐工作流（Skill 执行链）")
+    p_wf.add_argument("query", nargs="*", help="用户请求")
+    p_wf.add_argument("-g", "--global", dest="global_", action="store_true", default=True)
+    p_wf.add_argument("--top-n", type=int, default=5, help="最多推荐 Skill 数")
+    p_wf.set_defaults(func=cmd_workflow)
 
     # generate
     p_gen = subparsers.add_parser("generate", help="生成新 Skill")

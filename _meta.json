@@ -1,6 +1,6 @@
 {
   "name": "skillos",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Meta Skill Operating System — manages, analyzes, rates, optimizes, and generates Claude Code skills",
   "author": "SkillOS",
   "license": "MIT",
@@ -41,6 +41,17 @@
     "templates/"
   ],
   "changelog": [
+    {
+      "version": "1.1.0",
+      "date": "2026-06-07",
+      "changes": [
+        "Relationship Intelligence: 5 relationship types (conflict/complement/collaboration/reference/domain_adjacency)",
+        "Workflow Routing: Serial workflow recommendation based on relationship graph",
+        "New CLI commands: relationships (--json/--mermaid), workflow (--top-n)",
+        "94 unit tests (up from 80)",
+        "Relationship graph export: Markdown/JSON/Mermaid formats"
+      ]
+    },
     {
       "version": "1.0.0",
       "date": "2026-06-06",

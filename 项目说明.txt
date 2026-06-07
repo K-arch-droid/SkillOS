@@ -1,5 +1,5 @@
 ================================================================================
-                         SkillOS v1.0 — 项目说明
+                         SkillOS v1.1 — 项目说明
                      Meta Skill Operating System
 ================================================================================
 
@@ -102,8 +102,27 @@ self-improving-agent 29.9K 安装），SkillOS 是它们的编排层。
   - 等用户确认后才实施（不自动改文件）
   - 实现文件：skill_optimizer.py
 
-功能 8：CLI 命令行
-  - 8 个子命令：list / registry / rate / analyze / route / conflicts / generate / optimize
+功能 8：Relationship Intelligence（关系智能）
+  - 升级 conflict_detector.py 为关系图谱引擎
+  - 检测 5 种关系类型：
+    a) conflict — 触发词重叠或职责冲突（提取）
+    b) complement — 领域相邻、适合配合使用（推断）
+    c) collaboration — 产出方可作为消费方输入（推断）
+    d) reference — SKILL.md 正文互相引用（提取）
+    e) domain_adjacency — 属于相邻领域（推断）
+  - 每条关系带 source（extracted/inferred）和 confidence（0.0-1.0）
+  - 输出支持 Markdown / JSON / Mermaid 三种格式
+  - 实现文件：conflict_detector.py
+
+功能 9：Workflow Routing（工作流路由）
+  - 基于关系图谱构建 Serial Workflow 推荐
+  - 流程：Route Top N → 检测协作关系 → 拓扑排序 → 生成执行链
+  - 输出 WorkflowRecommendation（steps + confidence + reasoning）
+  - 每步标注角色：producer / consumer / transformer / independent
+  - 实现文件：skill_router.py
+
+功能 10：CLI 命令行
+  - 10 个子命令：list / registry / rate / analyze / route / conflicts / relationships / workflow / generate / optimize
   - argparse 参数解析
   - Windows 编码修复（UTF-8 输出）
   - 实现文件：skillos.py
@@ -770,11 +789,22 @@ skillos.py（CLI 入口）
   skillos.py
     ├── skill_parser.py        ← 所有模块的基础
     ├── skill_analyzer.py      ← 依赖 skill_parser
-    ├── skill_router.py        ← 依赖 skill_parser
-    ├── conflict_detector.py   ← 依赖 skill_parser
+    ├── skill_router.py        ← 依赖 skill_parser + conflict_detector（workflow 路由）
+    ├── conflict_detector.py   ← 依赖 skill_parser + skill_router（领域关键词）
     ├── skill_registry.py      ← 依赖 skill_parser
     ├── skill_generator.py     ← 独立（不依赖其他模块）
     └── skill_optimizer.py     ← 依赖 skill_parser + skill_analyzer
+
+  数据流：
+    skill_registry.py
+            ↓
+    skill_analyzer.py
+            ↓
+    conflict_detector.py (Relationship Intelligence)
+            ↓
+    skill_router.py (Workflow Routing)
+            ↓
+    Compose Flow (SKILL.md 编排指令)
 
 
 ================================================================================
@@ -819,5 +849,5 @@ CLI 命令：
     python skillos.py optimize ~/.claude/skills/my-skill
 
 ================================================================================
-                          SkillOS v1.0 — 完
+                          SkillOS v1.1 — 完
 ================================================================================

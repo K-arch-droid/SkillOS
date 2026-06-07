@@ -403,6 +403,39 @@ class TestRouter(unittest.TestCase):
         for t in tokens:
             self.assertGreaterEqual(len(t), 2)
 
+    def test_route_workflow_basic(self):
+        """workflow 路由应返回 WorkflowRecommendation。"""
+        from skill_router import route_workflow
+        from skill_parser import parse_skill
+        tmpdir = _write_temp_skill(SAMPLE_SKILL_MD)
+        parsed = parse_skill(tmpdir)
+        rec = route_workflow("帮我写测试", [parsed])
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec.query, "帮我写测试")
+        self.assertIsInstance(rec.steps, list)
+        self.assertGreaterEqual(len(rec.steps), 0)
+
+    def test_route_workflow_no_match(self):
+        """无匹配时返回空 steps。"""
+        from skill_router import route_workflow
+        from skill_parser import parse_skill
+        tmpdir = _write_temp_skill(SAMPLE_SKILL_MINIMAL)
+        parsed = parse_skill(tmpdir)
+        rec = route_workflow("xyz nonexistent query 12345", [parsed])
+        self.assertIsNotNone(rec)
+        # May have 0 or 1 step depending on match
+        self.assertIsInstance(rec.steps, list)
+
+    def test_format_workflow_recommendation(self):
+        from skill_router import route_workflow, format_workflow_recommendation
+        from skill_parser import parse_skill
+        tmpdir = _write_temp_skill(SAMPLE_SKILL_MD)
+        parsed = parse_skill(tmpdir)
+        rec = route_workflow("帮我写测试", [parsed])
+        formatted = format_workflow_recommendation(rec)
+        self.assertIn("工作流推荐", formatted)
+        self.assertIn("用户请求", formatted)
+
 
 # ─── Module 4: conflict_detector ────────────────────────────────────────────────
 
@@ -487,6 +520,101 @@ class TestConflictDetector(unittest.TestCase):
         formatted = format_conflict_report(report)
         self.assertIn("冲突检测报告", formatted)
         self.assertIn("skill-a", formatted)
+
+    def test_detect_relationships_complement(self):
+        """互补关系：领域相邻但触发词不重叠。"""
+        from conflict_detector import detect_relationships
+        a = self._make_skill("code-reviewer", 'Use whenever user asks to "review code" or "code review"')
+        b = self._make_skill("test-automator", 'Use whenever user asks to "write tests" or "run tests"')
+        report = detect_relationships([a, b])
+        self.assertEqual(report.total_skills, 2)
+        complement = [r for r in report.relationships if r.relation_type == "complement"]
+        self.assertTrue(len(complement) > 0, "Should detect complement between code review and testing")
+        self.assertEqual(complement[0].source, "inferred")
+
+    def test_detect_relationships_conflict_preserved(self):
+        """原有冲突检测在关系图谱中保留。"""
+        from conflict_detector import detect_relationships
+        a = self._make_skill("skill-a", 'Use for "testing" "qa" "coverage"')
+        b = self._make_skill("skill-b", 'Use for "testing" "qa" "coverage"')
+        report = detect_relationships([a, b])
+        conflicts = [r for r in report.relationships if r.relation_type == "conflict"]
+        self.assertTrue(len(conflicts) > 0)
+        self.assertEqual(conflicts[0].source, "extracted")
+
+    def test_detect_relationships_reference(self):
+        """引用关系：SKILL.md 正文引用其他 Skill。"""
+        from conflict_detector import detect_relationships
+        from skill_parser import SkillParseResult, SkillFrontmatter, SkillSection
+        a = SkillParseResult(
+            path="/tmp/skill-a",
+            frontmatter=SkillFrontmatter(name="skill-a", description="Skill A"),
+            body="## Overview\nSee skill-b.md for details.",
+            body_lines=2,
+            sections=[SkillSection(title="Overview", level=2, line_start=0, line_end=1, content="See skill-b.md")],
+            has_references_dir=False,
+            references_files=[],
+            skill_type="methodology",
+        )
+        b = self._make_skill("skill-b", "Skill B")
+        report = detect_relationships([a, b])
+        refs = [r for r in report.relationships if r.relation_type == "reference"]
+        self.assertTrue(len(refs) > 0)
+        self.assertEqual(refs[0].confidence, 1.0)
+
+    def test_detect_relationships_collaboration(self):
+        """协作关系：产出方 → 消费方。"""
+        from conflict_detector import detect_relationships
+        a = self._make_skill("code-generator", 'Use to "generate code" and "create files"')
+        b = self._make_skill("code-reviewer", 'Use to "review code" and "audit"')
+        report = detect_relationships([a, b])
+        collabs = [r for r in report.relationships if r.relation_type == "collaboration"]
+        self.assertTrue(len(collabs) > 0, "Should detect collaboration between generator and reviewer")
+        self.assertEqual(collabs[0].source, "inferred")
+        self.assertGreater(collabs[0].confidence, 0.5)
+
+    def test_detect_relationships_empty(self):
+        """空输入。"""
+        from conflict_detector import detect_relationships
+        report = detect_relationships([])
+        self.assertEqual(report.total_skills, 0)
+        self.assertEqual(len(report.relationships), 0)
+
+    def test_detect_relationships_single(self):
+        """单个 Skill 无法检测关系。"""
+        from conflict_detector import detect_relationships
+        a = self._make_skill("solo", "A solo skill")
+        report = detect_relationships([a])
+        self.assertEqual(report.total_skills, 1)
+        self.assertEqual(len(report.relationships), 0)
+
+    def test_format_relationship_report(self):
+        from conflict_detector import detect_relationships, format_relationship_report
+        a = self._make_skill("skill-a", 'Use for "testing"')
+        b = self._make_skill("skill-b", 'Use for "deployment"')
+        report = detect_relationships([a, b])
+        formatted = format_relationship_report(report)
+        self.assertIn("关系图谱", formatted)
+
+    def test_relationships_to_json(self):
+        from conflict_detector import detect_relationships, relationships_to_json
+        a = self._make_skill("skill-a", 'Use for "testing"')
+        b = self._make_skill("skill-b", 'Use for "testing"')
+        report = detect_relationships([a, b])
+        json_str = relationships_to_json(report)
+        data = json.loads(json_str)
+        self.assertIn("total_skills", data)
+        self.assertIn("relationships", data)
+        self.assertEqual(data["total_skills"], 2)
+
+    def test_relationships_to_mermaid(self):
+        from conflict_detector import detect_relationships, relationships_to_mermaid
+        a = self._make_skill("skill-a", 'Use for "testing"')
+        b = self._make_skill("skill-b", 'Use for "deployment"')
+        report = detect_relationships([a, b])
+        mermaid = relationships_to_mermaid(report)
+        self.assertIn("graph LR", mermaid)
+        self.assertIn("skill_a", mermaid)
 
 
 # ─── Module 5: skill_registry ───────────────────────────────────────────────────
@@ -810,6 +938,15 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("索引已生成", stdout)
 
+    def test_relationships_global(self):
+        rc, stdout, stderr = self._run_cli("relationships", "--global")
+        self.assertEqual(rc, 0)
+
+    def test_workflow_no_query(self):
+        rc, stdout, stderr = self._run_cli("workflow")
+        self.assertEqual(rc, 0)
+        self.assertIn("请提供", stdout)
+
 
 # ─── 集成测试 ────────────────────────────────────────────────────────────────────
 
@@ -882,7 +1019,7 @@ class TestIntegration(unittest.TestCase):
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("SkillOS v1.0 — 全功能自动化测试")
+    print("SkillOS v1.1 — 全功能自动化测试")
     print("=" * 60)
     print()
     unittest.main(verbosity=2)

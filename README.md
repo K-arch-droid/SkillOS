@@ -1,4 +1,4 @@
-# SkillOS v1.0
+# SkillOS v1.1
 
 **Meta Skill Operating System** — 管理所有 Skill 的 Skill。
 
@@ -16,6 +16,8 @@
 | **优化** | 审查→计划→确认→修改工作流 | `python skillos.py optimize ./my-skill` |
 | **生成** | 5 种类型模板，8 阶段交互式生成 | `python skillos.py generate --name my-skill` |
 | **冲突检测** | 触发词/职责/能力重叠检测 | `python skillos.py conflicts --global` |
+| **关系图谱** | 5 种关系类型（冲突/互补/协作/引用/领域相邻） | `python skillos.py relationships --global` |
+| **工作流推荐** | 基于关系图谱的 Serial Workflow 推荐 | `python skillos.py workflow "帮我开发网站"` |
 | **路由** | 智能匹配用户请求到最合适的 Skill | `python skillos.py route "审查 PR"` |
 | **索引** | 扫描已安装 Skill 生成注册表 | `python skillos.py registry --global` |
 
@@ -57,6 +59,14 @@ python skillos.py route "帮我写测试"
 
 # 检测冲突
 python skillos.py conflicts --global
+
+# 关系图谱
+python skillos.py relationships --global
+python skillos.py relationships --json
+python skillos.py relationships --format mermaid
+
+# 工作流推荐
+python skillos.py workflow "帮我开发网站"
 
 # 生成新 Skill
 python skillos.py generate --name my-skill --type methodology --desc "A skill for X"
@@ -128,7 +138,7 @@ SkillOS/
 ## 测试
 
 ```bash
-# 运行全部单元测试（80 个）
+# 运行全部单元测试（94 个）
 python -m tests.test_all -v
 
 # 运行 CLI 集成测试（24 个）
@@ -171,6 +181,28 @@ python -m tests.test_all TestRouter
 - **触发词重叠** — Jaccard 系数 > 0.3 触发警告
 - **职责重叠** — 双方的 "Do NOT" 范围有交集
 - **能力重复** — 章节结构重叠率 > 0.5
+
+### Relationship Intelligence
+
+升级冲突检测为全面的关系图谱引擎，支持 5 种关系类型：
+
+| 类型 | 来源 | 置信度 |
+|------|------|--------|
+| 冲突 (conflict) | 提取 | 基于 Jaccard 系数 |
+| 互补 (complement) | 推断 | 0.75 |
+| 协作 (collaboration) | 推断 | 0.65-0.82 |
+| 引用 (reference) | 提取 | 1.0 |
+| 领域相邻 (domain_adjacency) | 推断 | 0.65 |
+
+输出支持 Markdown / JSON / Mermaid 三种格式。
+
+### Workflow Routing
+
+基于关系图谱构建 Serial Workflow 推荐：
+
+1. Route 获取 Top N 匹配 Skill
+2. Relationship Intelligence 检测协作关系
+3. 拓扑排序生成执行链（产出方 → 消费方）
 
 ## 许可
 

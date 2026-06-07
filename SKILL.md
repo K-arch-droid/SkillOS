@@ -5,7 +5,7 @@ license: MIT
 argument-hint: <action> [target]
 metadata:
   author: SkillOS
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # SkillOS — Meta Skill Operating System
@@ -33,6 +33,8 @@ SkillOS 支持以下操作（通过 argument-hint 传入或由路由自动选择
 | `optimize` | 优化一个 Skill | → [Optimize 流程](#optimize-flow) |
 | `generate` | 生成新 Skill | → [Generate 流程](#generate-flow) |
 | `route` | 路由用户请求到合适 Skill | → [Route 流程](#route-flow) |
+| `workflow` | 推荐 Skill 执行链 | → [Workflow 流程](#workflow-flow) |
+| `relationships` | 检测 Skill 关系图谱 | → [Relationships 流程](#relationships-flow) |
 | `compose` | 编排多 Skill 协作 | → [Compose 流程](#compose-flow) |
 | `registry` | 更新 Skill 索引 | → [Registry 流程](#registry-flow) |
 
@@ -197,25 +199,82 @@ SkillOS 支持以下操作（通过 argument-hint 传入或由路由自动选择
 
 ---
 
+## Workflow Flow
+
+推荐 Skill 执行链。基于 Relationship Intelligence 构建 Serial Workflow。
+
+**步骤：**
+
+1. 运行 `python skillos.py workflow "用户请求"` 获取推荐
+2. 系统自动执行：
+   - 用 Route Flow 获取 Top N 匹配 Skill
+   - 用 Relationships Flow 检测 Skill 间关系
+   - 基于 collaboration 关系构建执行链
+3. 展示执行链，每步标注角色（产出方/消费方/独立执行）
+4. 用户确认后按序执行
+
+**CLI 用法：**
+
+```bash
+python skillos.py workflow "帮我开发网站"
+python skillos.py workflow "审查代码并优化性能" --top-n 3
+```
+
+---
+
+## Relationships Flow
+
+检测 Skill 之间的关系图谱。覆盖 5 种关系类型：
+
+| 类型 | 来源 | 说明 |
+|------|------|------|
+| 冲突 (conflict) | 提取 | 触发词重叠或职责冲突 |
+| 互补 (complement) | 推断 | 领域相邻、适合配合使用 |
+| 协作 (collaboration) | 推断 | 产出方可作为消费方输入 |
+| 引用 (reference) | 提取 | SKILL.md 正文互相引用 |
+| 领域相邻 (domain_adjacency) | 推断 | 属于相邻领域 |
+
+**步骤：**
+
+1. 运行 `python skillos.py relationships --global` 扫描所有 Skill
+2. 系统分析每个 Skill 的触发词、领域、能力、引用
+3. 输出关系图谱（Markdown / JSON / Mermaid）
+4. 供 Workflow Flow 和 Compose Flow 使用
+
+**CLI 用法：**
+
+```bash
+python skillos.py relationships --global
+python skillos.py relationships --json
+python skillos.py relationships --format mermaid
+```
+
+---
+
 ## Compose Flow
 
 编排多 Skill 协作执行。不合并 Skill 内容，而是创建编排层。
 
+**核心原则：Composition > Fusion。优先 Workflow，而不是 Merge。**
+
 **模式：**
 
 1. **串行依赖** — 前一个输出是后一个输入
-   - 例：api-designer → api-documenter → test-automator
+   - 例：planner → coder → reviewer → documenter
+   - 使用 `workflow` 命令自动推荐执行链
 2. **并行独立** — 互不依赖，可同时执行
    - 例：security-auditor + performance-engineer
 3. **条件分支** — 根据中间结果决定下一步
 
 **步骤：**
 
-1. 分析任务，识别需要哪些 Skill
-2. 确定执行顺序和依赖关系
+1. 先运行 `python skillos.py workflow "任务描述"` 获取推荐
+2. 确认执行链，必要时手动调整
 3. 创建 workflow 描述（markdown checklist）
 4. 按序调用各 Skill，传递上下文
 5. 汇总结果
+
+**禁止：合并多个 Skill 为一个 Mega Skill。**
 
 ---
 

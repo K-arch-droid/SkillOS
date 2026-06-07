@@ -9,3 +9,13 @@ build/
 *.tmp
 .DS_Store
 Thumbs.db
+
+# graphify output
+graphify-out/
+
+# runtime state (auto-generated after scanning)
+# state/*.json  # kept as templates
+
+# IDE
+.vscode/
+.idea/
