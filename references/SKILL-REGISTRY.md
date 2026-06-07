@@ -2,14 +2,14 @@
 
 > SkillOS 维护的已安装 Skill 索引。
 
-> 最后扫描时间: 2026-06-07 13:15:07
+> 最后扫描时间: 2026-06-07 15:48:57
 
-**共 22 个 Skill**
+**共 16 个 Skill**
 
 | # | 名称 | 作用域 | Agent | 描述 |
 |---|------|--------|-------|------|
 | 1 | Agent Browser | global | Claude Code | A fast Rust-based headless browser automation CLI with Node.js fallback that ena… |
-| 2 |  | global | Claude Code |  |
+| 2 | codeconductor | global | Claude Code | - Software Architecture & System Design |
 | 3 | find-skills | global | Claude Code | Helps users discover and install agent skills when they ask questions like "how … |
 | 4 | google-agents-cli-scaffold | global | Claude Code | > |
 | 5 | graphify-windows | global | Claude Code | any input (code, docs, papers, images) → knowledge graph → clustered communities… |
@@ -23,13 +23,7 @@
 | 13 | tencent-novnc-chromium-cdp | global | Claude Code | 做自动发抖音、自动发小红书等等各大平台的网页自动化，还在被滑块、验证码、人机验证卡到任务翻车、反复失败？试试这个一键部署的远程可视化浏览器：Linux（云服务器… |
 | 14 | webapp-testing | global | Claude Code | Toolkit for interacting with and testing local web applications using Playwright… |
 | 15 | Word / DOCX | global | Claude Code | Create, inspect, and edit Microsoft Word documents and DOCX files with reliable … |
-| 16 | google-agents-cli-scaffold | global | Claude Code | > |
-| 17 | graphify | global | Claude Code | any input (code, docs, papers, images) → knowledge graph → clustered communities… |
-| 18 | javascript-testing-patterns | global | Claude Code | Implement comprehensive testing strategies using Jest, Vitest, and Testing Libra… |
-| 19 | prd-planner | global | Claude Code | Creates PRDs using persistent file-based planning. Use when user explicitly says… |
-| 20 | product-designer | global | Claude Code | > |
-| 21 | react-nextjs-development | global | Claude Code | React and Next.js 14+ application development with App Router, Server Components… |
-| 22 | webapp-testing | global | Claude Code | Toolkit for interacting with and testing local web applications using Playwright… |
+| 16 | graphify | global | Claude Code | any input (code, docs, papers, images) → knowledge graph → clustered communities… |
 
 ---
 

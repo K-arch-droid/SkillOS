@@ -436,6 +436,215 @@ class TestRouter(unittest.TestCase):
         self.assertIn("工作流推荐", formatted)
         self.assertIn("用户请求", formatted)
 
+    # ── 回归测试：中文路由匹配 ──
+
+    def test_route_chinese_testing(self):
+        """中文 '帮我写单元测试' 应匹配 testing 领域。"""
+        from skill_router import route_request, DOMAIN_KEYWORDS
+        from skill_parser import SkillParseResult, SkillFrontmatter, SkillSection
+        testing_skill = SkillParseResult(
+            path="/tmp/javascript-testing-patterns",
+            frontmatter=SkillFrontmatter(
+                name="javascript-testing-patterns",
+                description='Testing patterns for JS/TS. Use whenever the user asks to "write tests" or "unit test"',
+            ),
+            body="## Overview\nContent",
+            body_lines=2,
+            sections=[],
+            has_references_dir=False,
+            references_files=[],
+            skill_type="technical",
+        )
+        result = route_request("帮我写单元测试", [testing_skill])
+        self.assertTrue(len(result.matches) > 0, "中文 '帮我写单元测试' 应有匹配结果")
+        self.assertGreater(result.matches[0].confidence, 0.3, "中文测试请求置信度应 > 0.3")
+
+    def test_route_chinese_code_review(self):
+        """中文 '审查代码' 应匹配 code review 领域。"""
+        from skill_router import route_request
+        from skill_parser import SkillParseResult, SkillFrontmatter, SkillSection
+        review_skill = SkillParseResult(
+            path="/tmp/code-reviewer",
+            frontmatter=SkillFrontmatter(
+                name="code-reviewer",
+                description='Code review tool. Use whenever the user asks to "review code" or "审查代码"',
+            ),
+            body="## Overview\nContent",
+            body_lines=2,
+            sections=[],
+            has_references_dir=False,
+            references_files=[],
+            skill_type="technical",
+        )
+        result = route_request("审查代码", [review_skill])
+        self.assertTrue(len(result.matches) > 0, "中文 '审查代码' 应有匹配结果")
+
+    def test_route_chinese_deployment(self):
+        """中文 '部署项目到生产环境' 应匹配 deployment 领域。"""
+        from skill_router import route_request
+        from skill_parser import SkillParseResult, SkillFrontmatter, SkillSection
+        deploy_skill = SkillParseResult(
+            path="/tmp/deploy-script",
+            frontmatter=SkillFrontmatter(
+                name="deploy-script",
+                description='Deployment automation. Use whenever the user asks to "deploy" or "部署"',
+            ),
+            body="## Overview\nContent",
+            body_lines=2,
+            sections=[],
+            has_references_dir=False,
+            references_files=[],
+            skill_type="automation",
+        )
+        result = route_request("部署项目到生产环境", [deploy_skill])
+        self.assertTrue(len(result.matches) > 0, "中文 '部署项目到生产环境' 应有匹配结果")
+
+    def test_validate_skill_name_valid(self):
+        """合法 kebab-case 名称应通过校验。"""
+        from skill_generator import validate_skill_name
+        valid, msg = validate_skill_name("my-skill")
+        self.assertTrue(valid)
+        valid, msg = validate_skill_name("test123")
+        self.assertTrue(valid)
+        valid, msg = validate_skill_name("a")
+        self.assertTrue(valid)
+
+    def test_validate_skill_name_invalid(self):
+        """非法名称应被拒绝。"""
+        from skill_generator import validate_skill_name
+        valid, msg = validate_skill_name("bad skill name")
+        self.assertFalse(valid)
+        self.assertIn("kebab-case", msg)
+        valid, msg = validate_skill_name("BadName")
+        self.assertFalse(valid)
+        valid, msg = validate_skill_name("")
+        self.assertFalse(valid)
+
+    def test_workflow_template_fallback(self):
+        """路由无匹配时，应通过任务模板兜底。"""
+        from skill_router import route_workflow, _WORKFLOW_TEMPLATES
+        from skill_parser import SkillParseResult, SkillFrontmatter, SkillSection
+        dummy = SkillParseResult(
+            path="/tmp/dummy",
+            frontmatter=SkillFrontmatter(name="dummy", description="Unrelated skill"),
+            body="",
+            body_lines=0,
+            sections=[],
+            has_references_dir=False,
+            references_files=[],
+            skill_type="technical",
+        )
+        rec = route_workflow("帮我开发一个网站", [dummy])
+        # Should hit the "website" template
+        self.assertTrue(len(rec.steps) > 0, "网站开发请求应通过模板兜底返回执行链")
+        self.assertIn("模板", rec.reasoning)
+
+    def test_route_skillos_creation_beats_find_skills(self):
+        """生成 Skill 的请求应优先路由到 SkillOS，而不是 find-skills。"""
+        from skill_router import route_request
+        from skill_parser import SkillParseResult, SkillFrontmatter
+        skills = [
+            SkillParseResult(
+                path="/tmp/find-skills",
+                frontmatter=SkillFrontmatter(
+                    name="find-skills",
+                    description='Helps users discover skills when they ask "find a skill for X"',
+                ),
+                body="",
+                body_lines=0,
+                sections=[],
+                has_references_dir=False,
+                references_files=[],
+                skill_type="methodology",
+            ),
+            SkillParseResult(
+                path="/tmp/skillos",
+                frontmatter=SkillFrontmatter(
+                    name="skillos",
+                    description='Use this skill whenever the user asks to "生成 skill", "创建 skill", or manage skills.',
+                ),
+                body="",
+                body_lines=0,
+                sections=[],
+                has_references_dir=False,
+                references_files=[],
+                skill_type="methodology",
+            ),
+        ]
+        result = route_request("生成一个新 skill", skills)
+        self.assertEqual(result.best_match.skill_name, "skillos")
+
+    def test_route_api_docs_avoids_self_improvement(self):
+        """API 文档请求不应被 self-improvement 抢占。"""
+        from skill_router import route_request
+        from skill_parser import SkillParseResult, SkillFrontmatter
+        skills = [
+            SkillParseResult(
+                path="/tmp/self-improvement",
+                frontmatter=SkillFrontmatter(
+                    name="self-improvement",
+                    description="Captures learnings, errors, API failures, and corrections.",
+                ),
+                body="",
+                body_lines=0,
+                sections=[],
+                has_references_dir=False,
+                references_files=[],
+                skill_type="methodology",
+            ),
+            SkillParseResult(
+                path="/tmp/word-docx",
+                frontmatter=SkillFrontmatter(
+                    name="Word / DOCX",
+                    description='Create and edit documentation, API docs, and Word documents.',
+                ),
+                body="",
+                body_lines=0,
+                sections=[],
+                has_references_dir=False,
+                references_files=[],
+                skill_type="technical",
+            ),
+        ]
+        result = route_request("帮我写个 API 文档", skills)
+        self.assertEqual(result.best_match.skill_name, "Word / DOCX")
+
+    def test_workflow_code_review_performance_template(self):
+        """代码审查和性能优化应走复合工作流模板。"""
+        from skill_router import route_workflow
+        from skill_parser import SkillParseResult, SkillFrontmatter
+        dummy = SkillParseResult(
+            path="/tmp/self-improvement",
+            frontmatter=SkillFrontmatter(name="self-improvement", description="Captures learnings and code review notes."),
+            body="",
+            body_lines=0,
+            sections=[],
+            has_references_dir=False,
+            references_files=[],
+            skill_type="methodology",
+        )
+        rec = route_workflow("代码审查和性能优化", [dummy])
+        self.assertGreaterEqual(len(rec.steps), 2)
+        self.assertEqual(rec.steps[0].skill_name, "graphify")
+
+    def test_workflow_skillos_management_template(self):
+        """检测冲突再推荐工作流应走 SkillOS 管理模板。"""
+        from skill_router import route_workflow
+        from skill_parser import SkillParseResult, SkillFrontmatter
+        skillos = SkillParseResult(
+            path="/tmp/skillos",
+            frontmatter=SkillFrontmatter(name="skillos", description="Use for skill management."),
+            body="",
+            body_lines=0,
+            sections=[],
+            has_references_dir=False,
+            references_files=[],
+            skill_type="methodology",
+        )
+        rec = route_workflow("先检测冲突，再推荐工作流", [skillos])
+        self.assertEqual(rec.steps[0].skill_name, "skillos")
+        self.assertIn("模板", rec.reasoning)
+
 
 # ─── Module 4: conflict_detector ────────────────────────────────────────────────
 
@@ -706,6 +915,24 @@ class TestRegistry(unittest.TestCase):
         self.assertIsInstance(reg, type(reg))  # Registry
         self.assertIsInstance(reg.entries, list)
 
+    def test_fallback_metadata_without_frontmatter(self):
+        """无 frontmatter 的 Skill 应使用目录名和正文推断元数据。"""
+        from skill_registry import _apply_fallback_metadata
+        from skill_parser import SkillParseResult, SkillFrontmatter
+        parsed = SkillParseResult(
+            path="/tmp/skillos/SKILL.md",
+            frontmatter=SkillFrontmatter(),
+            body="# SkillOS — Meta Skill Operating System\n\n管理、分析、评分、优化、生成和编排 Claude Code Skill。",
+            body_lines=3,
+            sections=[],
+            has_references_dir=False,
+            references_files=[],
+            skill_type="methodology",
+        )
+        _apply_fallback_metadata(parsed, Path("/tmp/skillos"))
+        self.assertEqual(parsed.frontmatter.name, "skillos")
+        self.assertIn("管理", parsed.frontmatter.description)
+
 
 # ─── Module 6: skill_generator ──────────────────────────────────────────────────
 
@@ -805,6 +1032,27 @@ class TestOptimizer(unittest.TestCase):
         plan = generate_optimization_plan(parsed)
         # Good skill should have fewer changes
         self.assertIsInstance(plan.changes, list)
+
+    def test_optimization_plan_deduplicates_examples_and_rewrites_description(self):
+        from skill_parser import parse_skill
+        from skill_optimizer import generate_optimization_plan
+        content = """---
+name: find-skills
+description: "Helps users discover and install agent skills when they ask questions like \\"how do I do X\\"."
+---
+
+# find-skills
+
+Some body without required sections.
+"""
+        tmpdir = _write_temp_skill(content)
+        parsed = parse_skill(tmpdir)
+        plan = generate_optimization_plan(parsed)
+        example_changes = [c for c in plan.changes if c.section == "body/Examples"]
+        self.assertLessEqual(len(example_changes), 1)
+        desc_changes = [c for c in plan.changes if c.section == "frontmatter/description"]
+        self.assertTrue(desc_changes)
+        self.assertNotIn("wants to helps", desc_changes[0].new_content.lower())
 
     def test_format_optimization_plan(self):
         from skill_parser import parse_skill

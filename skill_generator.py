@@ -205,6 +205,22 @@ def generate_frontmatter(
     return "\n".join(lines)
 
 
+def validate_skill_name(name: str) -> tuple:
+    """校验 Skill 名称是否为合法 kebab-case。
+
+    Returns:
+        (is_valid, message) — is_valid 为 True 表示合法，False 表示不合法
+    """
+    if not name:
+        return False, "Skill 名称不能为空"
+    pattern = r'^[a-z0-9]+(-[a-z0-9]+)*$'
+    if not re.match(pattern, name):
+        return False, f"Skill 名称 '{name}' 不合法，必须为 kebab-case（小写字母+数字+连字符），如 'my-skill'"
+    if len(name) > 64:
+        return False, f"Skill 名称过长（{len(name)} 字符），最多 64 字符"
+    return True, ""
+
+
 def generate_skill(
     name: str,
     description: str,
@@ -222,8 +238,12 @@ def generate_skill(
         output_dir: 输出目录（None 则只返回内容不写文件）
 
     Returns:
-        生成的 SKILL.md 内容
+        生成的 SKILL.md 内容，如果名称不合法返回空字符串
     """
+    # Validate name
+    is_valid, msg = validate_skill_name(name)
+    if not is_valid:
+        return ""
     if variables is None:
         variables = {}
 

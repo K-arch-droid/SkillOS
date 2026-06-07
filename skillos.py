@@ -56,7 +56,7 @@ from conflict_detector import (
     relationships_to_mermaid, relationships_to_json,
 )
 from skill_registry import scan_installed_skills, generate_registry_markdown, save_registry
-from skill_generator import generate_skill, validate_skill_content
+from skill_generator import generate_skill, validate_skill_content, validate_skill_name
 from skill_optimizer import generate_optimization_plan, format_optimization_plan
 
 
@@ -151,8 +151,13 @@ def cmd_route(args):
         print("用法: python skillos.py route \"帮我写测试\"")
         return
 
-    # Scan installed skills
-    scope = "global" if args.global_ else "both"
+    # Scan installed skills: None=both, True=global, False=project
+    if args.global_ is None:
+        scope = "both"
+    elif args.global_:
+        scope = "global"
+    else:
+        scope = "project"
     if scope == "both":
         registry = scan_installed_skills("global")
         project_registry = scan_installed_skills("project")
@@ -194,7 +199,12 @@ def cmd_workflow(args):
         print('用法: python skillos.py workflow "帮我开发网站"')
         return
 
-    scope = "global" if args.global_ else "both"
+    if args.global_ is None:
+        scope = "both"
+    elif args.global_:
+        scope = "global"
+    else:
+        scope = "project"
     if scope == "both":
         registry = scan_installed_skills("global")
         project_registry = scan_installed_skills("project")
@@ -242,6 +252,12 @@ def cmd_generate(args):
         print("用法: python skillos.py generate --name my-skill --type methodology --desc \"...\"")
         return
 
+    # Validate skill name
+    is_valid, msg = validate_skill_name(name)
+    if not is_valid:
+        print(f"❌ {msg}")
+        return
+
     desc = args.desc or f"A skill for {name}"
     skill_type = args.type or "methodology"
     output_dir = args.output or str(Path.cwd() / name)
@@ -252,6 +268,10 @@ def cmd_generate(args):
         skill_type=skill_type,
         output_dir=output_dir,
     )
+
+    if not content:
+        print(f"❌ 生成失败：Skill 名称 '{name}' 不合法")
+        return
 
     issues = validate_skill_content(content)
     if issues:
@@ -326,7 +346,8 @@ def main():
     # route
     p_route = subparsers.add_parser("route", help="路由用户请求到合适 Skill")
     p_route.add_argument("query", nargs="*", help="用户请求")
-    p_route.add_argument("-g", "--global", dest="global_", action="store_true", default=True)
+    p_route.add_argument("-g", "--global", dest="global_", action="store_true", default=None)
+    p_route.add_argument("-p", "--project", dest="global_", action="store_false")
     p_route.set_defaults(func=cmd_route)
 
     # conflicts
@@ -346,7 +367,8 @@ def main():
     # workflow
     p_wf = subparsers.add_parser("workflow", help="推荐工作流（Skill 执行链）")
     p_wf.add_argument("query", nargs="*", help="用户请求")
-    p_wf.add_argument("-g", "--global", dest="global_", action="store_true", default=True)
+    p_wf.add_argument("-g", "--global", dest="global_", action="store_true", default=None)
+    p_wf.add_argument("-p", "--project", dest="global_", action="store_false")
     p_wf.add_argument("--top-n", type=int, default=5, help="最多推荐 Skill 数")
     p_wf.set_defaults(func=cmd_workflow)
 

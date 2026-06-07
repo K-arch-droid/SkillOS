@@ -70,6 +70,7 @@ def scan_installed_skills(scope: str = "global") -> Registry:
     entries = []
 
     # Try npx skills ls --json
+    seen = set()
     try:
         cmd = ["npx", "skills", "ls", "--json"]
         if scope == "global":
@@ -79,9 +80,15 @@ def scan_installed_skills(scope: str = "global") -> Registry:
             data = json.loads(result.stdout)
             if isinstance(data, list):
                 for item in data:
+                    name = item.get("name", "unknown")
+                    path = item.get("path", "")
+                    dedup_key = (name.lower(), os.path.realpath(path))
+                    if dedup_key in seen:
+                        continue
+                    seen.add(dedup_key)
                     entry = SkillEntry(
-                        name=item.get("name", "unknown"),
-                        path=item.get("path", ""),
+                        name=name,
+                        path=path,
                         scope=item.get("scope", scope),
                         agents=item.get("agents", []),
                     )
@@ -91,6 +98,8 @@ def scan_installed_skills(scope: str = "global") -> Registry:
                         try:
                             parsed = parse_skill(entry.path)
                             if parsed:
+                                _apply_fallback_metadata(parsed, Path(entry.path))
+                                entry.name = parsed.frontmatter.name
                                 entry.description = parsed.frontmatter.description
                                 entry.parsed = parsed
                         except Exception:
@@ -119,6 +128,7 @@ def _scan_directories(scope: str) -> list:
         search_dirs = [
             home / ".claude" / "skills",
             home / ".agents" / "skills",
+            home / ".codex" / "skills",
         ]
     else:
         search_dirs = [
@@ -126,17 +136,30 @@ def _scan_directories(scope: str) -> list:
             Path.cwd() / "skills",
         ]
 
+    seen = set()  # (normalized_name, resolved_path) for dedup
+
     for search_dir in search_dirs:
         if not search_dir.is_dir():
             continue
         for item in search_dir.iterdir():
             if not item.is_dir():
                 continue
+            # Skip Codex system skills directory
+            if item.name == ".system":
+                continue
             skill_md = item / "SKILL.md"
             if skill_md.exists():
+                resolved = str(item.resolve())
                 parsed = parse_skill(str(item))
+                if parsed:
+                    _apply_fallback_metadata(parsed, item)
+                name = parsed.frontmatter.name if parsed else item.name
+                dedup_key = (name.lower(), resolved)
+                if dedup_key in seen:
+                    continue
+                seen.add(dedup_key)
                 entry = SkillEntry(
-                    name=parsed.frontmatter.name if parsed else item.name,
+                    name=name,
                     path=str(item),
                     scope=scope,
                     agents=["Claude Code"],
@@ -146,6 +169,57 @@ def _scan_directories(scope: str) -> list:
                 entries.append(entry)
 
     return entries
+
+
+def _apply_fallback_metadata(parsed: SkillParseResult, skill_dir: Path):
+    """Fill name/description for SKILL.md files that do not use frontmatter."""
+    if not parsed.frontmatter.name:
+        parsed.frontmatter.name = skill_dir.name or _slug_from_title(parsed.body)
+
+    if not parsed.frontmatter.description:
+        parsed.frontmatter.description = _description_from_body(parsed.body, parsed.frontmatter.name)
+
+
+def _slug_from_title(body: str) -> str:
+    """Infer a stable skill name from the first H1 title."""
+    for line in body.splitlines():
+        if line.startswith("# "):
+            title = line[2:].strip()
+            title = title.split("—", 1)[0].split("-", 1)[0].strip()
+            slug = title.lower()
+            slug = "".join(ch if ch.isalnum() else "-" for ch in slug)
+            slug = "-".join(part for part in slug.split("-") if part)
+            return slug
+    return ""
+
+
+def _description_from_body(body: str, name: str) -> str:
+    """Infer a concise description from early body content."""
+    lines = [line.strip() for line in body.splitlines()]
+
+    trigger_lines = []
+    in_triggers = False
+    for line in lines:
+        if "触发条件" in line or "when to use" in line.lower():
+            in_triggers = True
+            continue
+        if in_triggers and line.startswith("#"):
+            break
+        if in_triggers and line.startswith("-"):
+            trigger_lines.append(line.lstrip("- ").replace("/", ", "))
+        if len(trigger_lines) >= 8:
+            break
+
+    if trigger_lines:
+        triggers = "；".join(trigger_lines)
+        return f"Use this skill whenever the user asks for {name} skill management tasks: {triggers}"
+
+    for line in lines:
+        if not line or line.startswith("#") or line == "---":
+            continue
+        return line
+
+    return f"Use this skill whenever the user asks for {name}."
 
 
 def generate_registry_markdown(registry: Registry) -> str:

@@ -51,6 +51,7 @@ def generate_optimization_plan(parsed: SkillParseResult) -> OptimizationPlan:
             change = _finding_to_change(parsed, finding)
             if change:
                 changes.append(change)
+    changes = _deduplicate_changes(changes)
 
     return OptimizationPlan(
         target=parsed.frontmatter.name or parsed.path,
@@ -114,7 +115,91 @@ def _finding_to_change(parsed: SkillParseResult, finding: Finding) -> Optional[C
             new_content=f"## {missing.split(',')[0].strip().title()}\n\n(待填充内容)",
         )
 
+    if finding.category == "Description 质量" and "指令式" in finding.title:
+        old = fm.description
+        new = _rewrite_description(old, parsed.frontmatter.name or "this skill")
+        return Change(
+            file_path=parsed.path,
+            change_type="modify",
+            section="frontmatter/description",
+            description="添加指令式触发语态（Use this skill whenever…）",
+            priority="P1",
+            old_content=old[:100],
+            new_content=new[:100],
+        )
+
+    if finding.category == "Description 质量" and "触发短语" in finding.title:
+        return Change(
+            file_path=parsed.path,
+            change_type="modify",
+            section="frontmatter/description",
+            description="添加 ≥3 个引号触发短语",
+            priority="P1",
+            old_content=fm.description[:100],
+            new_content=f'{fm.description[:80]} …"action phrase 1", "action phrase 2", "action phrase 3"',
+        )
+
+    if finding.category == "Description 质量" and "超过 230" in finding.title:
+        old = fm.description
+        new = _rewrite_description(old, parsed.frontmatter.name or "this skill", max_len=230)
+        return Change(
+            file_path=parsed.path,
+            change_type="modify",
+            section="frontmatter/description",
+            description=f"缩短 description 至 230 字符以内（当前 {len(old)} 字符）",
+            priority="P1",
+            old_content=old[:100] + f"... (共 {len(old)} 字符)",
+            new_content=new,
+        )
+
+    if finding.category == "示例质量" and "缺少" in finding.title:
+        return Change(
+            file_path=parsed.path,
+            change_type="add",
+            section="body/Examples",
+            description="添加正反对比示例（✅ 正确 / ❌ 反模式）",
+            priority="P1",
+            old_content="",
+            new_content="## Examples\n\n### ✅ 正确用法\n(具体示例)\n\n### ❌ 反模式\n(反面示例 + 为什么不行)",
+        )
+
     return None
+
+
+def _deduplicate_changes(changes: list) -> list:
+    """Remove repeated plan items caused by adjacent findings."""
+    deduped = []
+    seen = set()
+    for change in changes:
+        key = (change.change_type, change.section, change.description)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(change)
+    return deduped
+
+
+def _rewrite_description(old: str, skill_name: str, max_len: int = 230) -> str:
+    """Create a readable directive description instead of mechanically prefixing text."""
+    text = re.sub(r"\s+", " ", old or "").strip()
+    text = re.sub(r"^(helps users|help users|this skill helps users)\s+", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^(a skill for|a tool for)\s+", "", text, flags=re.IGNORECASE)
+    text = text[:1].lower() + text[1:] if text else f"use {skill_name}"
+
+    candidate = f"Use this skill whenever the user asks to {text}"
+    if "do not" not in candidate.lower() and "not for" not in candidate.lower():
+        candidate += ". Do NOT use for unrelated business tasks."
+
+    if len(candidate) <= max_len:
+        return candidate
+
+    trigger_phrases = re.findall(r'"([^"]+)"', old or "")
+    trigger_text = ", ".join(f'"{t}"' for t in trigger_phrases[:3])
+    compact = f"Use this skill whenever the user asks to discover, compare, install, or manage skills"
+    if trigger_text:
+        compact += f" such as {trigger_text}"
+    compact += ". Do NOT use for domain implementation tasks."
+    return compact[:max_len].rstrip()
 
 
 def format_optimization_plan(plan: OptimizationPlan) -> str:

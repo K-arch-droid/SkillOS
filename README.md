@@ -21,6 +21,10 @@
 | **路由** | 智能匹配用户请求到最合适的 Skill | `python skillos.py route "审查 PR"` |
 | **索引** | 扫描已安装 Skill 生成注册表 | `python skillos.py registry --global` |
 
+## 使用指南
+
+详细使用指南请参见 [USAGE-GUIDE.md](USAGE-GUIDE.md)，包含安装配置、场景实战、v1.1 新功能详解和常见问题。
+
 ## 快速开始
 
 ### 环境要求
@@ -105,7 +109,7 @@ SkillOS 会作为 SKILL.md 被 Claude Code 自动识别：
 
 ```
 SkillOS/
-├── skillos.py              # CLI 主入口（9 个子命令）
+├── skillos.py              # CLI 主入口（10 个子命令）
 ├── skill_parser.py         # SKILL.md 解析器（基础模块）
 ├── skill_analyzer.py       # 7 维度分析引擎
 ├── skill_router.py         # 智能路由器（4 层加权匹配）
@@ -115,6 +119,7 @@ SkillOS/
 ├── conflict_detector.py    # 冲突检测器（Jaccard 系数）
 ├── SKILL.md                # Claude Code 读取的调度器
 ├── README.md               # 本文件
+├── USAGE-GUIDE.md          # 使用指南
 ├── _meta.json              # 元数据
 ├── LICENSE                 # MIT
 ├── references/             # 参考文档

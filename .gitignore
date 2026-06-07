@@ -13,6 +13,9 @@ Thumbs.db
 # graphify output
 graphify-out/
 
+# codex testing artifacts
+codex-artifacts/
+
 # runtime state (auto-generated after scanning)
 # state/*.json  # kept as templates
 

@@ -30,7 +30,7 @@ class RouteResult:
 DOMAIN_KEYWORDS = {
     "code_review": {
         "keywords": ["review", "pr", "pull request", "code review", "审查", "代码审查", "检查代码"],
-        "skill_patterns": ["code-review", "review", "code-reviewer"],
+        "skill_patterns": ["code-review", "review", "code-reviewer", "graphify", "codeconductor"],
     },
     "testing": {
         "keywords": ["test", "testing", "unit test", "e2e", "测试", "单元测试", "集成测试"],
@@ -67,7 +67,7 @@ DOMAIN_KEYWORDS = {
     "skill_management": {
         "keywords": ["skill", "find skill", "create skill", "rate skill", "optimize skill",
                      "找skill", "创建skill", "评价skill", "优化skill", "生成skill"],
-        "skill_patterns": ["skill", "skillos"],
+        "skill_patterns": ["skillos", "skill-creator", "skill-installer", "skill"],
     },
     "browser": {
         "keywords": ["browser", "scrape", "web automation", "浏览器", "抓取", "自动化"],
@@ -77,6 +77,92 @@ DOMAIN_KEYWORDS = {
         "keywords": ["commit", "branch", "merge", "git", "提交", "分支"],
         "skill_patterns": ["commit", "git", "branch"],
     },
+    "frontend": {
+        "keywords": ["网站", "前端", "web app", "next.js", "react", "网页", "页面", "webapp"],
+        "skill_patterns": ["react", "nextjs", "frontend", "webapp", "web"],
+    },
+    "skill_creation": {
+        "keywords": ["生成 skill", "创建 skill", "新 skill", "写一个 skill", "新建 skill", "generate skill", "create skill"],
+        "skill_patterns": ["skillos", "skill-creator", "generate", "skill"],
+    },
+    "api": {
+        "keywords": ["api", "接口", "接口文档", "rest", "restful", "endpoint"],
+        "skill_patterns": ["api", "rest", "endpoint", "openapi"],
+    },
+}
+
+
+# 中文短语 → 领域映射（用于短语级匹配）
+_PHRASE_DOMAIN_MAP = {
+    "单元测试": "testing",
+    "集成测试": "testing",
+    "写测试": "testing",
+    "测试代码": "testing",
+    "审查代码": "code_review",
+    "代码审查": "code_review",
+    "检查代码": "code_review",
+    "代码检查": "code_review",
+    "api文档": "documentation",
+    "接口文档": "documentation",
+    "写文档": "documentation",
+    "技术文档": "documentation",
+    "开发网站": "frontend",
+    "做网站": "frontend",
+    "建网站": "frontend",
+    "前端开发": "frontend",
+    "部署项目": "deployment",
+    "部署到": "deployment",
+    "上线部署": "deployment",
+    "生产环境": "deployment",
+    "安全审查": "security",
+    "安全检查": "security",
+    "性能优化": "performance",
+    "优化性能": "performance",
+    "提速": "performance",
+    "产品需求": "product",
+    "需求文档": "product",
+    "生成skill": "skill_creation",
+    "生成一个新skill": "skill_creation",
+    "创建skill": "skill_creation",
+    "创建一个skill": "skill_creation",
+    "新skill": "skill_creation",
+    "写一个skill": "skill_creation",
+    "api接口": "api",
+    "设计接口": "api",
+    "设计api": "api",
+    "浏览器": "browser",
+    "网页抓取": "browser",
+    "找skill": "skill_management",
+    "skill管理": "skill_management",
+    "skill列表": "skill_management",
+    "检测冲突": "skill_management",
+    "推荐工作流": "skill_management",
+    "skill工作流": "skill_management",
+    "评价skill": "skill_management",
+    "优化skill": "skill_management",
+}
+
+
+DOMAIN_SKILL_BOOSTS = {
+    "skill_creation": {"skillos": 0.35, "skill-creator": 0.25},
+    "skill_management": {"skillos": 0.35, "skill-creator": 0.2, "skill-installer": 0.2},
+    "code_review": {"graphify": 0.25, "codeconductor": 0.2},
+    "performance": {"graphify": 0.15, "codeconductor": 0.15},
+    "documentation": {"word": 0.2, "docx": 0.2, "graphify": 0.15, "prd": 0.1},
+    "api": {"word": 0.2, "docx": 0.2, "graphify": 0.15, "prd": 0.1},
+    "deployment": {"google-agents-cli-scaffold": 0.15, "tencent-novnc-chromium-cdp": 0.15},
+}
+
+
+GENERIC_SKILL_NAMES = {
+    "self-improvement",
+    "self-improving + proactive agent",
+}
+
+
+SELF_IMPROVEMENT_TERMS = {
+    "自我改进", "持续改进", "记忆", "纠正", "学习", "反思",
+    "self improvement", "learn", "memory", "correction",
 }
 
 
@@ -113,16 +199,19 @@ def route_request(query: str, available_skills: list) -> RouteResult:
     """
     query_tokens = _tokenize(query)
     query_lower = query.lower()
+    query_compact = re.sub(r"\s+", "", query_lower)
     matches = []
 
     for skill in available_skills:
         name = skill.frontmatter.name or ""
         desc = skill.frontmatter.description or ""
+        name_lower = name.lower()
+        desc_lower = desc.lower()
 
         # Extract skill's trigger keywords
         skill_triggers = set(re.findall(r'"([^"]+)"', desc))
         skill_tokens = _tokenize(desc)
-        skill_name_tokens = set(re.findall(r"[a-z]+", name.lower()))
+        skill_name_tokens = set(re.findall(r"[a-z]+", name_lower))
 
         # Score 1: Direct trigger phrase match
         trigger_score = 0
@@ -139,30 +228,68 @@ def route_request(query: str, available_skills: list) -> RouteResult:
                 trigger_score += 0.5
                 matched_triggers.append(trigger)
 
-        # Score 2: Keyword overlap with description
+        # Score 2: Keyword overlap with description (token + substring)
         keyword_overlap = len(query_tokens & skill_tokens) / max(len(query_tokens), 1)
+        # 中文子串匹配：query 中是否包含 skill 描述里的中文词
+        cn_keywords_in_desc = re.findall(r'[一-鿿]{2,}', desc)
+        for kw in cn_keywords_in_desc:
+            if kw in query_lower:
+                keyword_overlap = max(keyword_overlap, 0.5)
+                break
 
         # Score 3: Name match
         name_score = len(query_tokens & skill_name_tokens) / max(len(skill_name_tokens), 1)
 
-        # Score 4: Domain keyword match
+        # Score 4: Domain keyword match (token + phrase-level)
         domain_score = 0
+        matched_domain = None
+
+        # 4a: 短语级匹配（中文短语直接包含在 query 中）
+        for phrase, domain in _PHRASE_DOMAIN_MAP.items():
+            phrase_compact = re.sub(r"\s+", "", phrase.lower())
+            if phrase.lower() in query_lower or phrase_compact in query_compact:
+                config = DOMAIN_KEYWORDS.get(domain, {})
+                for pattern in config.get("skill_patterns", []):
+                    if pattern in name_lower or pattern in desc_lower:
+                        domain_score = max(domain_score, 0.85)
+                        matched_domain = domain
+                        break
+
+        # 4b: Token 级匹配
         for domain, config in DOMAIN_KEYWORDS.items():
             domain_tokens = set(config["keywords"])
             if query_tokens & domain_tokens:
-                # Check if skill name matches domain patterns
                 for pattern in config["skill_patterns"]:
-                    if pattern in name.lower() or pattern in desc.lower():
+                    if pattern in name_lower or pattern in desc_lower:
                         domain_score = max(domain_score, 0.8)
+                        matched_domain = domain
                         break
 
-        # Weighted total
-        confidence = min(1.0, (
-            trigger_score * 0.4 +
-            keyword_overlap * 0.3 +
-            name_score * 0.1 +
-            domain_score * 0.2
-        ))
+        # Weighted total — phrase-level domain match is a strong signal for Chinese queries
+        if matched_domain:
+            confidence = min(1.0, (
+                trigger_score * 0.2 +
+                keyword_overlap * 0.2 +
+                name_score * 0.1 +
+                domain_score * 0.5
+            ))
+        else:
+            confidence = min(1.0, (
+                trigger_score * 0.4 +
+                keyword_overlap * 0.3 +
+                name_score * 0.1 +
+                domain_score * 0.2
+            ))
+
+        if matched_domain:
+            for pattern, boost in DOMAIN_SKILL_BOOSTS.get(matched_domain, {}).items():
+                if pattern in name_lower or pattern in desc_lower:
+                    confidence = min(1.0, confidence + boost)
+                    break
+
+        if name_lower in GENERIC_SKILL_NAMES and matched_domain not in {"skill_management", "skill_creation"}:
+            if not any(term in query_lower for term in SELF_IMPROVEMENT_TERMS):
+                confidence *= 0.45
 
         if confidence > 0.1:
             reason_parts = []
@@ -244,6 +371,83 @@ class WorkflowRecommendation:
     reasoning: str
 
 
+# 预定义任务模板（当路由无匹配时兜底）
+_WORKFLOW_TEMPLATES = {
+    "code_review_performance": {
+        "triggers": ["代码审查和性能优化", "审查代码和性能优化", "代码审查与性能优化", "review and performance"],
+        "steps": [
+            ("graphify", "producer", "分析代码结构与热点"),
+            ("codeconductor", "transformer", "提出架构与性能优化建议"),
+            ("javascript-testing-patterns", "consumer", "补充回归测试验证优化"),
+        ],
+        "confidence": 0.68,
+    },
+    "website": {
+        "triggers": ["网站", "开发网站", "做网站", "建网站", "前端开发", "web app", "webapp", "website"],
+        "steps": [
+            ("prd-planner", "producer", "规划产品需求"),
+            ("product-designer", "transformer", "设计 UI/UX"),
+            ("react-nextjs-development", "transformer", "实现前端"),
+            ("webapp-testing", "consumer", "端到端测试"),
+        ],
+        "confidence": 0.7,
+    },
+    "testing": {
+        "triggers": ["写测试", "单元测试", "测试代码", "测试", "test", "testing"],
+        "steps": [
+            ("javascript-testing-patterns", "producer", "编写测试"),
+            ("webapp-testing", "consumer", "运行 E2E 测试"),
+        ],
+        "confidence": 0.65,
+    },
+    "code_review": {
+        "triggers": ["审查代码", "代码审查", "review", "检查代码", "代码检查"],
+        "steps": [
+            ("graphify", "producer", "分析代码架构"),
+            ("javascript-testing-patterns", "consumer", "验证测试覆盖"),
+        ],
+        "confidence": 0.6,
+    },
+    "new_project": {
+        "triggers": ["新项目", "搭建项目", "创建项目", "项目初始化", "new project"],
+        "steps": [
+            ("google-agents-cli-scaffold", "producer", "搭建项目脚手架"),
+            ("graphify", "transformer", "构建代码知识图谱"),
+            ("webapp-testing", "consumer", "验证项目可用"),
+        ],
+        "confidence": 0.65,
+    },
+    "skillos_management": {
+        "triggers": ["先检测冲突，再推荐工作流", "检测冲突再推荐工作流", "检测 skill 冲突", "推荐 skill 工作流"],
+        "steps": [
+            ("skillos", "producer", "检测 Skill 冲突"),
+            ("skillos", "consumer", "推荐 Skill 执行链"),
+        ],
+        "confidence": 0.95,
+    },
+}
+
+
+def _workflow_from_template(query: str, reason_suffix: str = "路由无直接匹配") -> WorkflowRecommendation:
+    query_lower = query.lower()
+    query_compact = re.sub(r"\s+", "", query_lower)
+    for template_name, template in _WORKFLOW_TEMPLATES.items():
+        for trigger in template["triggers"]:
+            trigger_compact = re.sub(r"\s+", "", trigger.lower())
+            if trigger.lower() in query_lower or trigger_compact in query_compact:
+                steps = [
+                    WorkflowStep(skill_name=skill_name, role=role, reason=reason)
+                    for skill_name, role, reason in template["steps"]
+                ]
+                return WorkflowRecommendation(
+                    query=query,
+                    steps=steps,
+                    confidence=template["confidence"],
+                    reasoning=f"基于任务模板 '{template_name}' 推荐（{reason_suffix}）",
+                )
+    return None
+
+
 def route_workflow(query: str, available_skills: list, top_n: int = 5) -> WorkflowRecommendation:
     """根据用户请求推荐 Serial Workflow（Skill 执行链）。
 
@@ -251,6 +455,7 @@ def route_workflow(query: str, available_skills: list, top_n: int = 5) -> Workfl
     1. 用 route_request() 获取 Top N 匹配 Skill
     2. 用 detect_relationships() 获取 Skill 间关系
     3. 基于 collaboration 关系构建 Serial 执行链
+    4. 如果路由无匹配，尝试任务模板兜底
 
     Args:
         query: 用户的自然语言请求
@@ -265,7 +470,17 @@ def route_workflow(query: str, available_skills: list, top_n: int = 5) -> Workfl
 
     # Step 1: 获取 Top N 匹配
     route_result = route_request(query, available_skills)
+
+    template_rec = _workflow_from_template(query, "模板优先匹配")
+    if template_rec and (not route_result.best_match or route_result.best_match.confidence <= template_rec.confidence):
+        return template_rec
+
+    # 如果路由无匹配，尝试任务模板兜底
     if not route_result.matches:
+        template_rec = _workflow_from_template(query)
+        if template_rec:
+            return template_rec
+
         return WorkflowRecommendation(
             query=query,
             steps=[],

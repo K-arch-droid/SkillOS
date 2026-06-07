@@ -101,6 +101,18 @@ def detect_conflicts(skills: list) -> ConflictReport:
     Returns:
         ConflictReport
     """
+    # Deduplicate by name
+    seen_names = set()
+    unique_skills = []
+    for s in skills:
+        name = (s.frontmatter.name or "").lower()
+        if name and name not in seen_names:
+            seen_names.add(name)
+            unique_skills.append(s)
+        elif not name:
+            unique_skills.append(s)
+    skills = unique_skills
+
     conflicts = []
     n = len(skills)
 
@@ -290,6 +302,18 @@ def detect_relationships(skills: list) -> RelationshipReport:
     Returns:
         RelationshipReport
     """
+    # Deduplicate by name to avoid self-conflict from duplicate entries
+    seen_names = set()
+    unique_skills = []
+    for s in skills:
+        name = (s.frontmatter.name or "").lower()
+        if name and name not in seen_names:
+            seen_names.add(name)
+            unique_skills.append(s)
+        elif not name:
+            unique_skills.append(s)
+    skills = unique_skills
+
     relationships = []
     n = len(skills)
 
