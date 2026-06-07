@@ -2,9 +2,9 @@
 
 > SkillOS 维护的已安装 Skill 索引。
 
-> 最后扫描时间: 2026-06-07 15:48:57
+> 最后扫描时间: 2026-06-07 16:19:35
 
-**共 16 个 Skill**
+**共 17 个 Skill**
 
 | # | 名称 | 作用域 | Agent | 描述 |
 |---|------|--------|-------|------|
@@ -24,6 +24,7 @@
 | 14 | webapp-testing | global | Claude Code | Toolkit for interacting with and testing local web applications using Playwright… |
 | 15 | Word / DOCX | global | Claude Code | Create, inspect, and edit Microsoft Word documents and DOCX files with reliable … |
 | 16 | graphify | global | Claude Code | any input (code, docs, papers, images) → knowledge graph → clustered communities… |
+| 17 | skillos | global | Claude Code | Use this skill whenever the user asks to "list skills", "rate skill", "optimize … |
 
 ---
 

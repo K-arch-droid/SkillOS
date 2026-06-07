@@ -1,0 +1,4 @@
+display_name: SkillOS
+short_description: Manage, rate, route, optimize, and generate agent skills.
+default_prompt: List my installed skills and recommend which skill should handle a task.
+

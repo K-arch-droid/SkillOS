@@ -1,0 +1,41 @@
+{
+  "name": "skillos",
+  "version": "1.1.0",
+  "description": "Meta Skill Operating System for AI agents",
+  "core": {
+    "entry": "skillos.py",
+    "requires": {
+      "python": ">=3.10"
+    }
+  },
+  "adapters": {
+    "codex": {
+      "source": "adapters/codex",
+      "default_target": "~/.codex/skills/skillos",
+      "install": "python skillos.py install --agent codex"
+    },
+    "claude-code": {
+      "source": "adapters/claude-code",
+      "default_target": "~/.claude/skills/skillos",
+      "install": "python skillos.py install --agent claude-code"
+    },
+    "generic": {
+      "source": "adapters/generic",
+      "default_target": null,
+      "install": "python skillos.py install --agent generic --target <path>"
+    }
+  },
+  "bundled_resources": {
+    "references": [
+      "REVIEW-CHECKLIST.md",
+      "ROUTING-RULES.md",
+      "SKILL-TYPES.md",
+      "GOTCHAS.md",
+      "ADVANCED-PATTERNS.md"
+    ],
+    "templates": [
+      "EVAL-TEMPLATE.md"
+    ]
+  }
+}
+

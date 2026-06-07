@@ -16,6 +16,7 @@ import os
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 # 确保 SkillOS 根目录在 Python 路径中
@@ -1194,6 +1195,46 @@ class TestCLI(unittest.TestCase):
         rc, stdout, stderr = self._run_cli("workflow")
         self.assertEqual(rc, 0)
         self.assertIn("请提供", stdout)
+
+    def test_install_dry_run(self):
+        tmpdir = tempfile.mkdtemp()
+        target = os.path.join(tmpdir, "skillos")
+        rc, stdout, stderr = self._run_cli("install", "--agent", "codex", "--target", target, "--dry-run")
+        self.assertEqual(rc, 0)
+        self.assertIn("Dry run", stdout)
+        self.assertFalse(os.path.exists(os.path.join(target, "SKILL.md")))
+
+    def test_install_codex_to_target(self):
+        tmpdir = tempfile.mkdtemp()
+        target = os.path.join(tmpdir, "skillos")
+        rc, stdout, stderr = self._run_cli("install", "--agent", "codex", "--target", target)
+        self.assertEqual(rc, 0)
+        self.assertTrue(os.path.isfile(os.path.join(target, "SKILL.md")))
+        self.assertTrue(os.path.isfile(os.path.join(target, "agents", "openai.yaml")))
+        self.assertTrue(os.path.isfile(os.path.join(target, "references", "REVIEW-CHECKLIST.md")))
+        content = Path(os.path.join(target, "SKILL.md")).read_text(encoding="utf-8")
+        self.assertIn(SKILLOS_ROOT, content)
+        self.assertNotIn("{{SKILLOS_ROOT}}", content)
+
+    def test_doctor_with_installed_target(self):
+        tmpdir = tempfile.mkdtemp()
+        target = os.path.join(tmpdir, "skillos")
+        self._run_cli("install", "--agent", "codex", "--target", target)
+        rc, stdout, stderr = self._run_cli("doctor", "--agent", "codex", "--target", target)
+        self.assertEqual(rc, 0)
+        self.assertIn("Doctor passed", stdout)
+
+    def test_package_adapter(self):
+        tmpdir = tempfile.mkdtemp()
+        out = os.path.join(tmpdir, "skillos-codex.zip")
+        rc, stdout, stderr = self._run_cli("package", "--agent", "codex", "-o", out)
+        self.assertEqual(rc, 0)
+        self.assertTrue(os.path.isfile(out))
+        with zipfile.ZipFile(out) as zf:
+            names = set(zf.namelist())
+        self.assertIn("skillos/SKILL.md", names)
+        self.assertIn("skillos/agents/openai.yaml", names)
+        self.assertIn("skillos/references/REVIEW-CHECKLIST.md", names)
 
 
 # ─── 集成测试 ────────────────────────────────────────────────────────────────────
